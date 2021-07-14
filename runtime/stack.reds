@@ -65,9 +65,9 @@ stack: context [										;-- call stack
 	;-- header flags
 	#enum flags! [
 		FLAG_INTERPRET: 80000000h						;-- Called from interpreter
-		FLAG_THROW_ATR:	40000000h						;-- Throw function attribut
-		FLAG_CATCH_ATR:	20000000h						;--	Catch function attribut
-		FLAG_IN_FUNC:	10000000h						;--	Inside of a function body (volative flag)
+		FLAG_THROW_ATR:	40000000h						;-- Throw function attribute
+		FLAG_CATCH_ATR:	20000000h						;--	Catch function attribute
+		FLAG_IN_FUNC:	10000000h						;--	Inside of a function body (volatile flag)
 
 		FRAME_FUNCTION:	01000000h						;-- function! call
 		FRAME_NATIVE:	02000000h						;-- native! or action! call
@@ -332,6 +332,31 @@ stack: context [										;-- call stack
 		check-call
 	]
 	
+	trace-in: func [
+		level	[integer!]
+		list	[red-block!]							;-- optional call stack storage block
+		stk		[integer!]
+		/local
+			fun	  [red-value!]
+			top	  [call-frame!]
+			base  [call-frame!]
+			sym	  [integer!]
+	][
+		top: as call-frame! stk
+		base: cbottom
+		until [
+			sym: base/header >> 8 and FFFFh
+			if all [sym <> body-symbol sym <> anon-symbol][
+				fun: _context/get-any sym base/ctx
+				if any [level > 1 TYPE_OF(fun) = TYPE_FUNCTION][
+					 word/make-at sym ALLOC_TAIL(list)
+				]
+			]
+			base: base + 1
+			base >= top									;-- defensive exit condition
+		]
+	]
+	
 	trace: func [
 		level	[integer!]
 		int		[red-integer!]
@@ -355,7 +380,7 @@ stack: context [										;-- call stack
 			sym: base/header >> 8 and FFFFh
 			
 			if all [sym <> body-symbol sym <> anon-symbol][
-				fun: _context/get-global sym
+				fun: _context/get-any sym base/ctx
 				if any [level > 1 TYPE_OF(fun) = TYPE_FUNCTION][
 					part: word/form 
 						word/make-at sym value
@@ -370,7 +395,7 @@ stack: context [										;-- call stack
 				]
 			]
 			base: base + 1
-			base >= top									;-- defensive test
+			base >= top									;-- defensive exit condition
 		]
 		part
 	]
@@ -383,6 +408,7 @@ stack: context [										;-- call stack
 	][
 		base: object/get-values err
 		int: as red-integer! base + error/get-stack-id
+		if TYPE_OF(int) = TYPE_BLOCK [exit]				;-- call stack already captured
 		int/header: TYPE_INTEGER
 		int/value:  as-integer ctop
 	]

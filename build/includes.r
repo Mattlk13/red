@@ -25,7 +25,6 @@ write %build/bin/sources.r set-cache [
 		;%css-colors.red
 		%datatypes.red
 		%functions.red
-		%lexer.red
 		%natives.red
 		%networking.red
 		%operators.red
@@ -34,16 +33,13 @@ write %build/bin/sources.r set-cache [
 		%scalars.red
 		%system.red
 		%codecs/ [
-			%bmp.red
-			%gif.red
-			%jpeg.red
-			%png.red
-			%json.red
-			%json/ [
-				%common.red
-				%load-json.red
-				%to-json.red
-			]
+			%BMP.red
+			%GIF.red
+			%JPEG.red
+			%PNG.red
+			%CSV.red
+			%JSON.red
+			%redbin.red
 		]
 		%console/ [
 			%auto-complete.red
@@ -55,6 +51,7 @@ write %build/bin/sources.r set-cache [
 				%POSIX.reds
 				%wcwidth.reds
 				%win32.reds
+				%settings.red
 			]
 			%GUI/ [
 				%old/ [
@@ -79,13 +76,17 @@ write %build/bin/sources.r set-cache [
 		%case-folding.reds
 		%clipboard.reds
 		%collector.reds
+		%compress.reds
 		%crush.reds
 		%crypto.reds
 		%debug-tools.reds
 		%definitions.reds
+		%deflate.reds
+		%dtoa.reds
 		%hashtable.reds
-		%inflate.reds
 		%interpreter.reds
+		%lexer.reds
+		%lexer-transitions.reds
 		%macros.reds
 		%natives.reds
 		%ownership.reds
@@ -97,6 +98,7 @@ write %build/bin/sources.r set-cache [
 		%simple-io.reds
 		%sort.reds
 		%stack.reds
+		%threads.reds
 		%tokenizer.reds
 		%tools.reds
 		%unicode.reds
@@ -110,6 +112,7 @@ write %build/bin/sources.r set-cache [
 			%common.reds
 			%context.reds
 			%datatype.reds
+			%date.reds
 			%email.reds
 			%error.reds
 			%event.reds
@@ -118,14 +121,17 @@ write %build/bin/sources.r set-cache [
 			%function.reds
 			%get-path.reds
 			%get-word.reds
+			%handle.reds
 			%hash.reds
 			%image.reds
+			%image-utils.reds
 			%integer.reds
 			%issue.reds
 			%lit-path.reds
 			%lit-word.reds
 			%logic.reds
 			%map.reds
+			%money.reds
 			%native.reds
 			%none.reds
 			%op.reds
@@ -136,6 +142,7 @@ write %build/bin/sources.r set-cache [
 			%percent.reds
 			%point.reds
 			%port.reds
+			%ref.reds
 			%refinement.reds
 			%routine.reds
 			%series.reds
@@ -151,20 +158,22 @@ write %build/bin/sources.r set-cache [
 			%unset.reds
 			%url.reds
 			%vector.reds
+			%vector2d.reds
 			%word.reds
-			%handle.reds
-			%date.reds
 		]
 		%platform/ [
 			%android.reds
 			%darwin.reds
 			%freebsd.reds
+			%netbsd.reds
 			%linux.reds
 			%POSIX.reds
 			%syllable.reds
 			%win32.reds
 			%COM.reds
+			%image-wic.reds
 			%image-gdiplus.reds
+			%image-gdk.reds
 			%image-quartz.reds
 			%win32-ansi.reds
 			%win32-print.reds
@@ -186,10 +195,12 @@ write %build/bin/sources.r set-cache [
 					%base.reds
 					%button.reds
 					%camera.reds
+					%calendar.reds
 					%classes.reds
 					%comdlgs.reds
 					%direct2d.reds
-					%draw-d2d.reds
+					%matrix2d.reds
+					%draw-gdi.reds
 					%draw.reds
 					%events.reds
 					%font.reds
@@ -219,6 +230,26 @@ write %build/bin/sources.r set-cache [
 					%selectors.reds
 					%tab-panel.reds
 					%text-box.reds
+				]
+				%gtk3/ [
+					%camera.reds
+					%camera-dev.reds
+					%color.reds
+					%comdlgs.reds
+					%css.reds
+					%draw.reds
+					%events.reds
+					%font.reds
+					%gtk.reds
+					%gui.reds
+					%handlers.reds
+					%menu.reds
+					%para.reds
+					%rules.red
+					%tab-panel.reds
+					%text-box.reds
+					%text-list.reds
+					%v4l2.reds
 				]
 				%test/ [
 					%draw.reds
@@ -265,6 +296,7 @@ write %build/bin/sources.r set-cache [
 			%darwin.reds
 			%debug.reds
 			%freebsd.reds
+			%netbsd.reds
 			%libc.reds
 			%lib-names.reds
 			%lib-natives.reds

@@ -17,7 +17,7 @@ Red/System [
 #define OS_POLLIN 		1
 
 #case [
-	any [OS = 'macOS OS = 'FreeBSD] [
+	any [OS = 'macOS OS = 'FreeBSD OS = 'NetBSD] [
 		#define TIOCGWINSZ		40087468h
 		#define TERM_TCSADRAIN	1
 		#define TERM_VTIME		18
@@ -186,7 +186,7 @@ winsize!: alias struct! [
 
 old-act:	declare sigaction!
 saved-term: declare termios!
-utf-char:	declare c-string!
+utf-char: as-c-string allocate 10
 poller: 	declare pollfd!
 relative-y:	0
 init?:		no
@@ -308,6 +308,7 @@ emit-string-int: func [
 emit-red-char: func [
 	cp			[integer!]
 ][
+	if hide-input? [cp: as-integer #"*"]
 	case [
 		cp <= 7Fh [
 			pbuffer/1: as-byte cp
@@ -373,32 +374,16 @@ query-cursor: func [
 get-window-size: func [
 	/local
 		ws	 [winsize!]
-		here [integer!]
 		size [red-pair!]
 ][
 	ws: declare winsize!
 
 	ioctl stdout TIOCGWINSZ ws
 	columns: ws/rowcol >> 16
-
-	if zero? columns [
-		columns: 80
-		here: 0
-		if query-cursor :here [
-			emit-string "^[[999C"
-
-			either query-cursor :columns [
-				if columns > here [				;-- reset cursor position
-					emit-string-int "^[[" columns - here #"D"
-				]
-			][
-				emit cr
-			]
-		]
-	]
+	rows: ws/rowcol and FFFFh
 	size: as red-pair! #get system/console/size
 	size/x: columns
-	size/y: ws/rowcol and FFFFh
+	size/y: rows
 ]
 
 reset-cursor-pos: does [
@@ -447,15 +432,20 @@ output-to-screen: does [
 	write stdout buffer (as-integer pbuffer - buffer)
 ]
 
-init: func [
+init: func [][
+	console?: 1 = isatty stdin
+	if console? [
+		get-window-size
+	]
+]
+
+init-console: func [
 	/local
 		term [termios!]
 		cc	 [byte-ptr!]
 		so	 [sigaction! value]
 ][
-	console?: 1 = isatty stdin
 	relative-y: 0
-	utf-char: as-c-string allocate 10
 	
 	if console? [
 		sigemptyset (as-integer :so) + 4
@@ -484,7 +474,7 @@ init: func [
 			TERM_ECHO or TERM_ICANON or TERM_IEXTEN or TERM_ISIG
 		)
 		#case [
-			any [OS = 'macOS OS = 'FreeBSD] [
+			any [OS = 'macOS OS = 'FreeBSD OS = 'NetBSD] [
 				cc: (as byte-ptr! term) + (4 * size? integer!)
 			]
 			true [cc: (as byte-ptr! term) + (4 * size? integer!) + 1]
@@ -516,5 +506,4 @@ restore: does [
 	tcsetattr stdin TERM_TCSADRAIN saved-term
 	#if OS <> 'Linux [sigaction SIGWINCH old-act null]
 	free buffer
-	free as byte-ptr! utf-char
 ]

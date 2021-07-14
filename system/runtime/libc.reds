@@ -135,11 +135,15 @@ Red/System [
 			value		[float!]
 			return:		[float!]
 		]
-		log-2:		"log" [
+		log-e:		"log" [
 			value		[float!]
 			return:		[float!]
 		]
 		sqrt:		"sqrt" [
+			value		[float!]
+			return:		[float!]
+		]
+		fabs:		"fabs" [
 			value		[float!]
 			return:		[float!]
 		]
@@ -165,6 +169,13 @@ Red/System [
 		]
 		libc.copy-memory target source size
 	]
+]
+
+alloc0: func [
+	size		[integer!]
+	return:		[byte-ptr!]
+][
+	set-memory allocate size null-byte size
 ]
 
 #either unicode? = yes [
@@ -201,31 +212,48 @@ Red/System [
 		i
 	]
 
-	prin-float: func [f [float!] return: [float!] /local s p e?][
-		either f - (floor f) = 0.0 [
-			s: "                        "				;-- 23 + 1 for NUL
-			sprintf [s "%g.0" f]
-			assert s/1 <> null-byte
-			p: s
-			e?: no
-			while [p/1 <> null-byte][
-				if p/1 = #"e" [e?: yes]
-				p: p + 1
+	prin-float: func [
+		f		[float!]
+		return: [float!]
+		/local s [c-string!] p [c-string!] e? [logic!] d [int-ptr!]
+	][
+		d: as int-ptr! :f
+		case [
+			d/2 = 7FF80000h [
+				prin "1.#NaN"
 			]
-			if e? [p: p - 2 p/1: null-byte]
-			prin s
-		][
-			printf ["%.16g" f]
+			f - (floor f) = 0.0 [
+				s: "                        "				;-- 23 + 1 for NUL
+				sprintf [s "%g.0" f]
+				assert s/1 <> null-byte
+				p: s
+				e?: no
+				while [p/1 <> null-byte][
+					if p/1 = #"e" [e?: yes]
+					p: p + 1
+				]
+				if any [e? p/-2 = #"F"][p: p - 2 p/1: null-byte]
+				prin s
+			]
+			true [printf ["%.16g" f]]
 		]
 		f
 	]
 
-	prin-float32: func [f32 [float32!] return: [float32!] /local f [float!]][
-		f: as float! f32
-		either f - (floor f) = 0.0 [
-			printf ["%g.0" f]
-		][
-			printf ["%.7g" f]
+	prin-float32: func [f32 [float32!] return: [float32!] /local f [float!] d [int-ptr!]][
+		d: as int-ptr! :f32
+		case [
+			d/1 = 7FC00000h [prin "1.#NaN"]
+			d/1 = 7F800000h [prin "1.#INF"]
+			d/1 = FF800000h [prin "-1.#INF"]
+			true [
+				f: as float! f32
+				either f - (floor f) = 0.0 [
+					printf ["%g.0" f]
+				][
+					printf ["%.7g" f]
+				]
+			]
 		]
 		f32
 	]

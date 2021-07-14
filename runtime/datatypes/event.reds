@@ -94,6 +94,8 @@ event: context [
 		value	[red-value!]
 		path	[red-value!]
 		case?	[logic!]
+		get?	[logic!]
+		tail?	[logic!]
 		return:	[red-value!]
 		/local
 			word [red-word!]
@@ -103,7 +105,7 @@ event: context [
 		sym: symbol/resolve word/symbol
 		
 		either value <> null [
-			if sym <> words/type [fire [TO_ERROR(script invalid-path-set) path]]
+			if sym <> words/type [fire [TO_ERROR(script bad-path-set) path word]]
 			if TYPE_OF(value) <> TYPE_WORD [fire [TO_ERROR(script bad-path-set) path value]]
 			gui/set-event-type evt as red-word! value
 			value

@@ -107,7 +107,7 @@ collector: context [
 		;probe "context"
 		if keep node [
 			ctx: TO_CTX(node)
-			keep ctx/symbols
+			_hashtable/mark ctx/symbols
 			unless ON_STACK?(ctx) [mark-block-node ctx/values]
 		]
 	]
@@ -155,10 +155,7 @@ collector: context [
 				]
 				TYPE_BLOCK
 				TYPE_PAREN
-				TYPE_PATH
-				TYPE_LIT_PATH
-				TYPE_GET_PATH
-				TYPE_SET_PATH [
+				TYPE_ANY_PATH [
 					series: as red-series! value
 					if series/node <> null [			;-- can happen in routine
 						#if debug? = yes [if verbose > 1 [print ["len: " block/rs-length? as red-block! series]]]
@@ -173,12 +170,12 @@ collector: context [
 						]
 					]
 				]
-				TYPE_SYMBOL
-				TYPE_STRING
-				TYPE_URL 
-				TYPE_FILE
-				TYPE_TAG 
-				TYPE_EMAIL [
+				TYPE_SYMBOL [
+					series: as red-series! value
+					keep as node! series/extra
+					if series/node <> null [keep series/node]
+				]
+				TYPE_ANY_STRING [
 					#if debug? = yes [if verbose > 1 [print as-c-string string/rs-head as red-string! value]]
 					series: as red-series! value
 					keep series/node
@@ -203,7 +200,7 @@ collector: context [
 					#if debug? = yes [if verbose > 1 [print "context"]]
 					ctx: as red-context! value
 					;keep ctx/self
-					mark-block-node ctx/symbols
+					_hashtable/mark ctx/symbols
 					unless ON_STACK?(ctx) [mark-block-node ctx/values]
 				]
 				TYPE_HASH
@@ -244,10 +241,10 @@ collector: context [
 						mark-block-node as node! native/code
 					]
 				]
-				#if OS = 'macOS [
+				#if any [OS = 'macOS OS = 'Linux OS = 'Windows][
 				TYPE_IMAGE [
 					image: as red-image! value
-					keep image/node
+					#if draw-engine <> 'GDI+ [if image/node <> null [keep image/node]]
 				]]
 				default [0]
 			]
@@ -279,7 +276,18 @@ collector: context [
 	]
 	
 	do-mark-sweep: func [
-		/local s [series!] p [int-ptr!] obj [red-object!] w [red-word!] cb file saved tm tm1 buf
+		/local
+			s		[series!]
+			p		[int-ptr!]
+			obj		[red-object!]
+			w		[red-word!]
+		#if debug? = yes [
+			file	[c-string!]
+			saved	[integer!]
+			buf		[c-string!]
+			tm tm1	[float!]
+		]
+			cb
 	][
 		#if debug? = yes [if verbose > 1 [
 			#if OS = 'Windows [platform/dos-console?: no]
@@ -315,6 +323,7 @@ collector: context [
 		#if debug? = yes [if verbose > 1 [probe "marking globals"]]
 		keep case-folding/upper-to-lower/node
 		keep case-folding/lower-to-upper/node
+		lexer/mark-buffers
 
 		#if debug? = yes [if verbose > 1 [probe "marking path parent"]]
 		obj: object/path-parent
@@ -339,8 +348,10 @@ collector: context [
 		#if debug? = yes [if verbose > 1 [probe "marking globals from optional modules"]]
 		p: ext-markers
 		while [p < ext-top][
-			cb: as function! [] p/value
-			cb
+			if p/value <> 0 [							;-- check if not unregistered
+				cb: as function! [] p/value
+				cb
+			]
 			p: p + 1
 		]
 		
@@ -363,7 +374,7 @@ collector: context [
 
 		#if debug? = yes [
 			tm: (platform/get-time yes yes) - tm - tm1
-			sprintf [buf ", mark: %.1fms, sweep: %.1fms" tm1 * 1000 tm * 1000]
+			sprintf [buf ", mark: %.1fms, sweep: %.1fms" tm1 * 1000.0 tm * 1000.0]
 			probe [" => " memory-info null 1 buf]
 			if verbose > 1 [
 				simple-io/close-file stdout
@@ -380,8 +391,16 @@ collector: context [
 	
 	register: func [cb [int-ptr!]][
 		assert (as-integer ext-top - ext-markers) >> 2 < ext-size
-		ext-top/value: as integer! cb
+		ext-top/value: as-integer cb
 		ext-top: ext-top + 1
+	]
+	
+	unregister: func [cb [int-ptr!] /local p [int-ptr!]][
+		p: ext-markers
+		while [p < ext-top][
+			if p/value = as-integer cb [p/value: 0 exit]
+			p: p + 1
+		]
 	]
 	
 ]

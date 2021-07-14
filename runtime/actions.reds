@@ -376,6 +376,8 @@ actions: context [
 			value
 			null
 			no
+			no
+			yes
 		
 		if set? [object/path-parent/header: TYPE_NONE]	;-- disables owner checking
 		value
@@ -387,6 +389,8 @@ actions: context [
 		value	[red-value!]
 		path	[red-path!]
 		case?	[logic!]
+		get?	[logic!]
+		tail?	[logic!]
 		return:	[red-value!]
 		/local
 			action-path
@@ -399,10 +403,12 @@ actions: context [
 			value	[red-value!]
 			path	[red-value!]
 			case?	[logic!]
+			get?	[logic!]
+			tail?	[logic!]
 			return:	[red-value!]
 		] get-action-ptr-path parent ACT_EVALPATH as red-value! path
 		
-		action-path parent element value as red-value! path case?
+		action-path parent element value as red-value! path case? get? tail?
 	]
 	
 	set-path*: func [][]
@@ -429,12 +435,7 @@ actions: context [
 	][
 		#if debug? = yes [if verbose > 0 [print-line "actions/compare"]]
 
-		action-compare: as function! [
-			value1  [red-value!]						;-- first operand
-			value2  [red-value!]						;-- second operand
-			op	    [integer!]							;-- type of comparison
-			return: [integer!]
-		] get-action-ptr value1 ACT_COMPARE
+		action-compare: DISPATCH_COMPARE(value1)
 		
 		value: action-compare value1 value2 op
 		if all [
@@ -473,12 +474,7 @@ actions: context [
 	][
 		#if debug? = yes [if verbose > 0 [print-line "actions/compare-value"]]
 
-		action-compare: as function! [
-			value1  [red-value!]						;-- first operand
-			value2  [red-value!]						;-- second operand
-			op	    [integer!]							;-- type of comparison
-			return: [integer!]
-		] get-action-ptr value1 ACT_COMPARE
+		action-compare: DISPATCH_COMPARE(value1)
 
 		switch TYPE_OF(value1) [
 			TYPE_LOGIC	 [res: value1/data1 - value2/data1]
@@ -1294,15 +1290,18 @@ actions: context [
 
 	reverse*: func [
 		part [integer!]
+		skip [integer!]
 	][
 		reverse
 			as red-series! stack/arguments
 			stack/arguments + part
+			stack/arguments + skip
 	]
 
 	reverse: func [
 		series  [red-series!]
 		part	[red-value!]
+		skip    [red-value!]
 		return:	[red-value!]
 		/local
 			action-reverse
@@ -1312,10 +1311,11 @@ actions: context [
 		action-reverse: as function! [
 			series	[red-series!]
 			part	[red-value!]
+			skip    [red-value!]
 			return:	[red-value!]
 		] get-action-ptr as red-value! series ACT_REVERSE
 
-		action-reverse series part
+		action-reverse series part skip
 	]
 	
 	select*: func [
@@ -1686,7 +1686,25 @@ actions: context [
 		action-open spec new? read? write? seek? allow
 	]
 	
-	open?*: func [][]
+	open?*: func [][
+		stack/set-last open? stack/arguments
+	]
+
+	open?: func [
+		port	[red-value!]
+		return:	[red-value!]
+		/local
+			action-open?
+	][
+		#if debug? = yes [if verbose > 0 [print-line "actions/open?"]]
+
+		action-open?: as function! [
+			port	[red-value!]
+			return:	[red-value!]						;-- picked value from series
+		] get-action-ptr port ACT_OPEN?
+
+		action-open? port
+	]
 
 	query*: func [][
 		stack/set-last query stack/arguments
@@ -1925,11 +1943,11 @@ actions: context [
 			:delete*
 			:modify*
 			:open*
-			null			;open?
+			:open?*
 			:query*
 			:read*
-			null			;rename
-			null			;update
+			:rename*
+			:update*
 			:write*
 		]
 	]

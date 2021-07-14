@@ -40,19 +40,25 @@ Red [
 #include %tips.red
 
 gui-console-ctx: context [
+	cfg-dir:	none
 	cfg-path:	none
 	cfg:		none
-	font:		make font! [name: "Consolas" size: 11 color: 0.0.0]
+	font:		make font! [name: system/view/fonts/fixed size: 11 color: 0.0.0]
 	caret-clr:	0.0.0.1
 	scroller:	make scroller! []
 
 	console:	make face! [
-		type: 'rich-text color: 0.0.128 offset: 0x0 size: 400x400
+		type: 'rich-text color: 0.0.128 offset: 0x0 size: 200x200
 		flags:   [scrollable all-over]
 		options: [cursor: I-beam]
 		menu: [
-			"Copy^-Ctrl+C"		copy
-			"Paste^-Shift+Ins"	paste
+			#either config/OS = 'macOS [
+				"Copy^-Command+C"	copy
+				"Paste^-Command+V"	paste
+			][
+				"Copy^-Ctrl+C"		copy
+				"Paste^-Shift+Ins"	paste
+			]
 			---
 			"Select All"		select-all
 		]
@@ -133,8 +139,8 @@ gui-console-ctx: context [
 	show-caret: func [][unless caret/enabled? [caret/enabled?: yes]]
 
 	setup-faces: does [
-		console/pane: reduce [caret]
-		append win/pane reduce [console tips]
+		;console/pane: reduce [caret]
+		append win/pane reduce [console caret tips]
 		win/menu: [
 			"File" [
 				"Run..."			run-file
@@ -162,7 +168,7 @@ gui-console-ctx: context [
 						if ft: request-font/font/mono font [
 							font: ft
 							console/font: font
-							terminal/update-cfg font cfg
+							terminal/zoom font
 						]
 					]
 					settings		[show-cfg-dialog]
@@ -170,7 +176,9 @@ gui-console-ctx: context [
 			]
 			on-close: func [face [object!] event [event!]][
 				save-cfg
+				system/view/platform/exit-event-loop
 				clear head system/view/screens/1/pane
+				quit
 			]
 			on-resizing: function [face [object!] event [event!]][
 				new-sz: event/offset
@@ -213,7 +221,7 @@ gui-console-ctx: context [
 		view/flags/no-wait win [resize]		;-- create window instance
 		console/init
 		load-cfg
-		win/visible?: yes
+		if empty? system/script/args [win/visible?: yes]
 
 		svs: system/view/screens/1
 		svs/pane: next svs/pane				;-- proctect itself from unview/all
@@ -223,31 +231,25 @@ gui-console-ctx: context [
 	]
 ]
 
+_save-cfg: function [][
+	gui-console-ctx/save-cfg
+]
+
 ask: function [
 	"Prompt the user for input"
 	question [string!]
+	/hide
 	return:  [string!]
 ][
-	gui-console-ctx/show-caret
-
-	line: make string! 8
-	line: insert line question
-
-	vt: gui-console-ctx/terminal
-	vt/line: line
-	vt/pos: 0
-	vt/add-line head line
-	vt/ask?: yes
-	vt/reset-top/force
-	vt/clear-stack
-	either vt/paste/resume [
-		vt/do-ask-loop/no-wait
+	if all [
+		gui-console-ctx/console/state
+		not gui-console-ctx/win/visible?
 	][
-		system/view/platform/redraw gui-console-ctx/console
-		system/view/auto-sync?: yes
-		do-events
+		gui-console-ctx/win/visible?: yes
 	]
-	vt/ask?: no
+
+	gui-console-ctx/show-caret
+	line: gui-console-ctx/terminal/ask question hide
 	gui-console-ctx/caret/enabled?: no
 	unless gui-console-ctx/console/state [line: "quit"]
 	line

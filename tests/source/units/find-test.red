@@ -328,11 +328,19 @@ Red [
 		--assert "78" = find/last/tail "123456378" "3"
 ===end-group===
 
-===start-group=== "find datatype!"
-	--test-- "find datatype! -1"
-		--assert [1] = find [a 1] integer!
-	--test-- "find datatype! -2"
-		--assert none = find [a] integer!
+===start-group=== "find datatype! / typeset!"
+	--test-- "find-dt-1" --assert [1] = find [a 1] integer!
+	--test-- "find-dt-2" --assert none = find [a] integer!
+	--test-- "find-dt-3" --assert [3% 4.5.6 #c] = find [1 "a" 2.0 #"b" 3% 4.5.6 #c] percent!
+	--test-- "find-dt-4" --assert ['b 4.5.6 c:] = find ["a" 2.0 'b 4.5.6 c: ] any-word!
+	--test-- "find-dt-5" --assert ["b"] = find [a "b"] series!
+
+	--test-- "find-dt-6"  --assert (make hash! [1]) = find make hash! [a 1] integer!
+	--test-- "find-dt-7"  --assert none = find make hash! [a] integer!
+	--test-- "find-dt-8"  --assert (make hash! [3% 4.5.6 #c]) = make hash! find [1 "a" 2.0 #"b" 3% 4.5.6 #c] percent!
+	--test-- "find-dt-9"  --assert (make hash! ['b 4.5.6 c:]) = make hash! find ["a" 2.0 'b 4.5.6 c: ] any-word!
+	--test-- "find-dt-10" --assert (make hash! ["b"]) = find make hash! [a "b"] series!
+
 ===end-group===
 
 ===start-group=== "find/reverse/match"
@@ -397,5 +405,81 @@ Red [
 		--assert "f64" = find/tail/skip/reverse tail s pattern 3
 	--test-- "issue-3687-12"
 		--assert "87bcdef64" = find/tail/skip/reverse skip s 6 pattern 3
+
+===end-group===
+
+===start-group=== "FIND issue #4165 (words)"
+
+	a: object [x: 1]
+	b: object [x: 2]
+	xs: reduce ['x in a 'x in b 'x]
+
+	--test-- "issue-4165-w1"
+		--assert 2 = index? find/same xs in a 'x
+	--test-- "issue-4165-w2"
+		--assert 3 = index? find/same xs in b 'x
+	--test-- "issue-4165-w3"
+		--assert 2 = index? find/same xs next xs
+	--test-- "issue-4165-w4"
+		--assert to logic! find/match/same xs reduce ['x in a 'x]
+	--test-- "issue-4165-w5"
+		--assert same? xs/1 to word! to refinement! xs/2	;-- loses binding during conversion
+	--test-- "issue-4165-w6"
+		--assert same? xs/1 to word! to issue! xs/2			;-- loses binding during conversion
+
+===end-group===
+
+===start-group=== "FIND issue #4165 (floats)"
+
+	nan1: 0.0 / 0.0
+	nan2: 1.0 * 1.#inf
+	b: reduce [1 1.0 nan1 nan2 to percent! nan1 to time! nan2]
+
+	--test-- "issue-4165-f1"
+		--assert 3 = index? find/same b nan1
+	--test-- "issue-4165-f2"
+		--assert 4 = index? find/same b nan2
+	--test-- "issue-4165-f3"
+		--assert 3 = index? find/same b reduce [nan1 nan2]
+	--test-- "issue-4165-f4"
+		--assert to logic! find/match/same next b reduce [1.0 nan1 nan2]
+	--test-- "issue-4165-f5"
+		--assert 5 = index? find/same b to percent! nan1
+	--test-- "issue-4165-f6"
+		--assert 6 = index? find/same b to time! nan2
+
+	dt1: 2000-1-1 + to time! nan1
+	dt2: 2000-1-1 + to time! nan2
+	dts: reduce [dt1 dt2]
+
+	--test-- "issue-4165-f7"
+		--assert not same?  dt1 dt2
+	; --test-- "issue-4165-f8"				;@@ FIXME: needs #4717 merged to work
+	; 	--assert not equal? dt1 dt1
+	; --test-- "issue-4165-f9"				;@@ FIXME: needs #4717 merged to work
+	; 	--assert not strict-equal? dt1 dt1
+	--test-- "issue-4165-f10"
+		--assert 1 = index? find/same dts dt1
+	--test-- "issue-4165-f11"
+		--assert 2 = index? find/same dts dt2
+
+===end-group===
+
+===start-group=== "FIND issue #4165 (bitsets)"
+
+	bs1: make bitset! [1 - 10]
+	bs2: make bitset! [1 - 10]
+	bss: reduce [bs1 bs2]
+
+	--test-- "issue-4165-bs1"
+		--assert equal? bs1 bs2
+	--test-- "issue-4165-bs2"
+		--assert not same? bs1 bs2
+	--test-- "issue-4165-bs3"
+		--assert 1 = index? find/same bss bs1
+	--test-- "issue-4165-bs4"
+		--assert 2 = index? find/same bss bs2
+
+===end-group===
 
 ~~~end-file~~~

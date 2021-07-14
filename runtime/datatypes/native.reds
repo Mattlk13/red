@@ -13,6 +13,31 @@ Red/System [
 native: context [
 	verbose: 0
 	
+	clone-ref-array: func [
+		vec		[red-vector!]							;-- clone the vector in-place
+		return: [red-vector!]
+		/local
+			new    [node!]
+			s	   [series!]
+			target [series!]
+			size   [integer!]
+	][
+		s: GET_BUFFER(vec)
+		size: s/size
+		new: alloc-bytes size
+
+		unless zero? size [
+			target: as series! new/value
+			copy-memory
+				as byte-ptr! target/offset
+				as byte-ptr! s/offset
+				size
+			target/tail: as cell! ((as byte-ptr! target/offset) + size)
+		]	
+		vec/node: new
+		vec
+	]
+	
 	preprocess-options: func [							;-- cache optional typesets for native calls
 		args	  [red-block!]
 		native	  [red-native!]
@@ -39,7 +64,7 @@ native: context [
 			found?	  [logic!]
 	][
 		s: GET_BUFFER(args)
-		vec: vector/clone as red-vector! s/tail - 1
+		vec: clone-ref-array as red-vector! s/tail - 1
 		saved: vec/node
 		s/tail: s/tail - 2								;-- clear the vector record
 		
@@ -113,7 +138,7 @@ native: context [
 			unless found? [fire [TO_ERROR(script no-refine) fname word]]
 			value: value + 1
 		]
-		
+		assert ref-array + index - 1 <= as int-ptr! s/tail
 		block/rs-append args as red-value! none-value	;-- restore vector record
 		
 		vec: as red-vector! ALLOC_TAIL(args)
@@ -121,17 +146,6 @@ native: context [
 		vec/head: 	0
 		vec/node: 	saved
 		vec/type:	TYPE_INTEGER
-	]
-	
-	push: func [
-		/local
-			cell  [red-native!]
-	][
-		#if debug? = yes [if verbose > 0 [print-line "native/push"]]
-		
-		cell: as red-native! stack/push*
-		cell/header: TYPE_NATIVE
-		;...TBD
 	]
 	
 	;-- Actions -- 
@@ -172,7 +186,11 @@ native: context [
 		field	[integer!]
 		return:	[red-block!]
 		/local
-			blk [red-block!]
+			blk   [red-block!]
+			table [int-ptr!]
+			index [integer!]
+			node  [node!]
+			s	  [series!]
 	][
 		case [
 			field = words/spec [
@@ -180,6 +198,22 @@ native: context [
 				blk/header: TYPE_BLOCK					;-- implicit reset of all header flags
 				blk/node:	native/spec
 				blk/head:	0
+			]
+			field = words/body [
+				either all [TYPE_OF(native) = TYPE_OP native/header and body-flag <> 0][
+					node: as node! native/code
+					either null? node [
+						stack/set-last none-value
+					][
+						s: as series! node/value
+						stack/set-last s/offset
+					]
+				][
+					table: either TYPE_OF(native) = TYPE_NATIVE [natives/table][actions/table]
+					index: 0
+					until [index: index + 1 native/code = table/index]
+					return as red-block! integer/box index
+				]
 			]
 			field = words/words [
 				--NOT_IMPLEMENTED--						;@@ build the words block from spec

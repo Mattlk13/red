@@ -97,16 +97,16 @@ make-profilable make target-class [
 
 	emit-variable: func [
 		name  [word! object!] 
-		gcode [binary! block! none!]					;-- global opcodes
-		pcode [binary! block! none!]					;-- PIC opcodes
-		lcode [binary! block!] 							;-- local opcodes
+		gcode [binary! block! none!]				;-- global opcodes
+		pcode [binary! block! none!]				;-- PIC opcodes
+		lcode [binary! block!] 						;-- local opcodes
 		/local offset byte code spec
 	][
 		if object? name [name: compiler/unbox name]
 		
 		case [
 			offset: emitter/local-offset? name [
-				offset: stack-encode offset 			;-- local variable case
+				offset: stack-encode offset 		;-- local variable case
 				either block? lcode: adjust-disp32 lcode offset [
 					emit reduce bind lcode 'offset
 				][
@@ -114,7 +114,7 @@ make-profilable make target-class [
 					emit offset
 				]
 			]
-			PIC? [										;-- global variable case (PIC version)
+			PIC? [									;-- global variable case (PIC version)
 				spec: emitter/symbols/:name
 				either spec/1 = 'import-var [
 					emit #{8BB3}					;-- MOV esi, [ebx+<import disp>]
@@ -135,7 +135,7 @@ make-profilable make target-class [
 					]
 				]
 			]
-			'global [									;-- global variable case
+			'global [								;-- global variable case
 				spec: emitter/symbols/:name
 				either spec/1 = 'import-var [
 					emit #{8B3D}					;-- MOV edi, [<import>]
@@ -213,11 +213,11 @@ make-profilable make target-class [
 		]	
 	]
 	
-	emit-variable-poly: func [							;-- polymorphic variable access generation
+	emit-variable-poly: func [						;-- polymorphic variable access generation
 		name [word! object!]
-		    g8 [binary!] 		g32 [binary!]			;-- opcodes for global variables
-		    p8 [binary!] 		p32 [binary!]			;-- opcodes for global variables (PIC)
-			l8 [binary! block!] l32 [binary! block!]	;-- opcodes for local variables
+		    g8 [binary!] 		g32 [binary!]		;-- opcodes for global variables
+		    p8 [binary!] 		p32 [binary!]		;-- opcodes for global variables (PIC)
+			l8 [binary! block!] l32 [binary! block!];-- opcodes for local variables
 	][
 		with-width-of name [
 			switch width [
@@ -239,10 +239,16 @@ make-profilable make target-class [
 		]
 	]
 	
-	emit-alloc-stack: does [
+	emit-alloc-stack: func [zeroed? [logic!]][
+		if zeroed? [emit #{89C1}]					;-- MOV ecx, eax
 		emit #{C1E002}								;-- SHL eax, 2
 		emit #{29C4}								;-- SUB esp, eax
 		emit #{83E4FC}								;-- AND esp, -4		; align to lower bound
+		if zeroed? [
+			emit #{89E7}							;-- MOV edi, esp
+			emit #{31C0}							;-- XOR eax, eax
+			emit #{F3AB}							;-- REP STOSD
+		]
 	]
 	
 	emit-free-stack: does [
@@ -544,6 +550,83 @@ make-profilable make target-class [
 		emit #{9BDBE3}								;-- FINIT			; init x87 FPU
 	]
 	
+	emit-atomic-load: func [order [word!]][
+		if verbose >= 3 [print [">>>emitting ATOMIC-LOAD" mold ptr mold order]]
+		emit #{8B00}								;-- MOV eax, [eax]
+	]
+	
+	emit-atomic-store: func [value order [word!]][
+		if verbose >= 3 [print [">>>emitting ATOMIC-STORE" mold ptr mold value mold order]]
+		emit #{89C6} 								;-- MOV esi, eax
+		emit-load value
+		emit #{8906}								;-- MOV [esi], eax
+		emit-atomic-fence
+	]
+	
+	emit-atomic-math: func [op [word!] right-op old? [logic!] ret? [logic!] order [word!]][
+		if verbose >= 3 [print [">>>emitting ATOMIC-MATH-OP" mold ptr mold op mold value mold ret? mold order]]
+		emit #{89C6} 								;-- MOV esi, eax
+		emit-load right-op
+		either any [old? ret?][
+			either find [add sub] op [
+				emit #{89C2}						;-- MOV edx, eax
+				if op = 'sub [emit #{F7D8}]			;-- NEG eax
+				emit #{F00FC106}					;-- LOCK XADD [esi], eax
+				if all [ret? not old?][
+					emit either op = 'add [
+						#{01D0}						;-- ADD eax, edx
+					][
+						#{29D0}						;-- SUB eax, edx
+					]
+				]
+			][
+				emit #{89C7}						;-- MOV edi, eax	; edi: right-op
+				emit #{8B06}						;-- MOV eax, [esi]
+													;-- .loop:
+				emit #{89C1}						;--   MOV ecx, eax
+				unless old? [emit #{89C2}]			;--   [MOV edx, eax]  ; only for old?
+				switch op [
+					or  [emit #{09F9}]				;--   OR  ecx, edi
+					xor [emit #{31F9}]				;--   XOR ecx, edi
+					and [emit #{21F9}]				;--   AND ecx, edi
+				]
+				emit #{F00FB10E}					;--   LOCK CMPXCHG [esi], ecx
+				emit either old? [#{75F4}][#{75F6}]	;--   JNE .loop
+				emit either all [ret? not old?][
+					#{89C8}							;-- MOV eax, ecx	; eax: newly written value
+				][
+					#{89D0}							;-- MOV eax, edx	; eax: last old value
+				]
+			]
+		][
+			emit switch op [
+				add  [#{F00106}]					;-- LOCK ADD [esi], eax
+				sub  [#{F02906}]					;-- LOCK SUB [esi], eax
+				or   [#{F00906}]					;-- LOCK OR  [esi], eax
+				xor  [#{F03106}]					;-- LOCK XOR [esi], eax
+				and  [#{F02106}]					;-- LOCK AND [esi], eax
+			]
+		]
+	]
+	
+	emit-atomic-cas: func [check value ret? [logic!] order [word!]][
+		if verbose >= 3 [print [">>>emitting ATOMIC-CAS" mold ptr mold check mold value ret? mold order]]
+		emit #{89C6} 								;-- MOV esi, eax
+		emit-load value
+		emit-move-path-alt							;-- load new value in edx
+		emit-load check								;-- load check value in eax
+		emit #{F00FB116}							;-- LOCK CMPXCHG [esi], edx
+		if ret? [
+			emit #{0F94C0}							;-- SETE al
+			emit #{25FF000000}						;-- AND eax, 0xFF
+		]
+	]
+	
+	emit-atomic-fence: does [
+		if verbose >= 3 [print ">>>emitting ATOMIC-FENCE"]
+		emit #{0FAEF0}								;-- MFENCE
+	]
+
 	emit-get-overflow: does [
 		emit #{0F90C0}								;-- SETO al
 		emit #{83E001}								;-- AND eax, 1
@@ -634,7 +717,7 @@ make-profilable make target-class [
 
 	emit-not: func [value [word! char! tag! integer! logic! path! string! object!] /local opcodes type boxed][
 		if verbose >= 3 [print [">>>emitting NOT" mold value]]
-		
+
 		if object? value [boxed: value]
 		value: compiler/unbox value
 		if block? value [value: <last>]
@@ -705,7 +788,7 @@ make-profilable make target-class [
 	]
 	
 	emit-load: func [
-		value [char! logic! integer! word! string! path! paren! get-word! object! decimal!]
+		value [char! logic! integer! word! string! path! paren! get-word! object! decimal! issue!]
 		/alt
 		/with cast [object!]
 		/local offset spec
@@ -728,6 +811,7 @@ make-profilable make target-class [
 				emit #{B8}							;-- MOV eax, value
 				emit to-bin32 value
 			]
+			issue!
 			decimal! [
 				set-width any [cast value]
 				emit-push any [cast value]
@@ -841,7 +925,7 @@ make-profilable make target-class [
 	]
 	
 	emit-store: func [
-		name [word!] value [char! logic! integer! word! string! paren! tag! get-word! decimal!]
+		name [word!] value [char! logic! integer! word! string! binary! paren! tag! get-word! decimal! issue!]
 		spec [block! none!]
 		/by-value slots [integer!]
 		/local store-dword type offset
@@ -869,6 +953,7 @@ make-profilable make target-class [
 				do store-dword
 				emit to-bin32 value
 			]
+			issue!
 			decimal! [
 				store-float-variable name
 			]
@@ -932,7 +1017,8 @@ make-profilable make target-class [
 				]
 			]
 			string!
-			paren! [
+			paren!
+			binary! [
 				either PIC? [
 					emit-variable name
 						#{A3}						;-- MOV [name], eax		; global
@@ -1213,6 +1299,10 @@ make-profilable make target-class [
 		emit #{58} 									;-- POP eax
 		emit #{83E801}								;-- SUB eax, 1
 	]
+
+	patch-sub-call: func [buffer [binary!] ptr [integer!] offset [integer!]][
+		change at buffer ptr to-bin32 negate offset + 5 - 1
+	]
 	
 	patch-jump-back: func [buffer [binary!] offset [integer!]][
 		change at buffer offset to-bin32 negate offset + 4 - 1
@@ -1228,34 +1318,134 @@ make-profilable make target-class [
 		emit-reloc-addr compose/only [- - (type)]
 	]
 
+	construct-jump: func [
+		"construct the jump instruction binary (internal! for use within emit-branch only!)"
+		op [word! none!] "operator to constuct for, NONE for unconditional jump, 'parity for parity jump"
+		size [integer!] "jump size"
+		back? [logic! none!]
+		/local opcode o short? dir
+	][
+		o: size * dir: pick [-1 1] yes = back?		;-- convert size to signed jump offset
+		short?: to logic! all [-126 <= o  o <= 127]	;-- account for 2bytes of Jxx opcode when short-jumping back
+		opcode: pick pick [
+			[#{EB} #{E9}]							;-- JMP short/near
+			[#{70} #{0F80}]							;-- Jcc short/near
+			[#{7A} #{0F8A}]							;-- JP  short/near
+		]	either op = 'parity [ 3 ][ none? op ]	;-- pick row: 1 = normal, 2 = conditional, 3 = parity
+			short? 									;-- pick column
+		if all [op op <> 'parity] [
+			opcode: add-condition op copy opcode	;-- use `op` to modify the conditional jump Jcc
+		]
+		if back? [									;-- when jumping back, offset should account for the jump instruction size
+			size: size + (length? opcode) + (pick [1 4] short?)
+			o: size * dir							;-- recalculate offset with new size
+		]
+		o: either short? [to-bin8 o][to-bin32 o]	;-- make binary signed offset
+		reduce [size rejoin [opcode o]]
+	]
+
 	emit-branch: func [
 		code [binary!]
 		op [word! block! logic! none!]
 		offset [integer! none!]
+		parity [none! logic!] "yes = also emit parity check for unordered (NaN) comparison"
 		/back?
-		/local size imm8? opcode jmp
+		/local size jump jxx jcc jp unord-jumps-to-true? flip? jump-code
 	][
 		if verbose >= 3 [print [">>>inserting branch" either op [join "cc: " mold op][""]]]
-		
-		size: (length? code) - any [offset 0]				;-- offset from the code's head
-		imm8?: size <= either back? [126][127]				;-- account 2 bytes for JMP imm8
-		opcode: either not none? op [						;-- explicitly test for none
-			op: case [
-				block? op [									;-- [cc] => keep
-					op: op/1
-					either logic? op [pick [= <>] op][op]	;-- [logic!] or [cc]
-				]
-				logic? op [pick [= <>] op]					;-- test for TRUE/FALSE
-				'else 	  [opposite? op]					;-- 'cc => invert condition
-			]
-			add-condition op copy pick [#{70} #{0F80}] imm8? ;-- Jcc offset 	; 8/32-bit displacement
+		size: (length? code) - any [offset 0]			;-- offset from the code's head
+		jump: copy #{}									;-- resulting binary
+		jxx: [second set [size jump-code] construct-jump op      size back?]
+		jp:  [second set [size jump-code] construct-jump 'parity size back?]
+
+		either none? op [								;-- explicitly test for none
+			append jump do jxx							;-- JMP offset 	; 8/32-bit displacement
 		][
-			pick [#{EB} #{E9}] imm8?						;-- JMP offset 	; 8/32-bit displacement
+			flip?: no									;-- condition inverted? flag
+			op: case [
+				block? op [								;-- [cc] => keep
+					op: op/1
+					either logic? op [					;-- [logic!] or [cc]
+						pick [= <>] op
+					][ op ]
+				]
+				logic? op [pick [= <>] op]				;-- test for TRUE/FALSE
+				'else 	  [
+					flip?: yes 							;-- flip unordered target along with the condition
+					opposite? op						;-- 'cc => invert condition; unordered defined by the original op
+				]
+			]
+
+			unord-jumps-to-true?: either flip? [		;-- should unordered JP jump lead to true branch?
+				op <> '=
+			][	op = first [<>]
+			]
+
+			;-- optimization: JNx jumps fail on NaNs anyways, Jx - succeed; no need for parity tests
+			if all [
+				parity									;-- with NaN: CF=PF=ZF=1
+				either unord-jumps-to-true? [
+					;-- JP can be left off if Jcc always succeeds on P=1: JC(<), JZ(=), JBE(<=)
+					find [< = <=]  op
+				][
+					;-- JP can be left off if Jcc always fails on P=1: JNC(>=), JNZ(<>), JA(>)
+					find [> <> >=] op
+				]
+			] [parity: no]
+
+			either not parity [
+				append jump do jxx						;-- Jcc offset 	; 8/32-bit displacement
+			][
+				either back? [							;-- in `back?` mode size is adjusted by jxx automatically
+					either unord-jumps-to-true? [
+						;; _true:
+						;;   <code>
+						;;   JP _true		; short/far
+						;;   Jcc _true		; short/far
+						;; _false:
+
+						append jump do jp				;-- append JP _true
+						append jump do jxx				;-- append Jcc _true
+					][
+						;; _true:
+						;;   <code>
+						;;   JP _false		; short
+						;;   Jcc _true		; short/far
+						;; _false:
+
+						size: size + 2					;-- manually skip 2 bytes of the JP
+						jcc: do jxx 					;-- lay out Jcc _true
+						append jump rejoin [#{7A} to-bin8 length? jcc]	;-- append JP _false, over the Jcc size
+						append jump jcc					;-- append Jcc _true
+					]
+				][										;-- forward jumps, no auto size adjustment
+					either unord-jumps-to-true? [
+						;;   JP _true		; short/far - needs to know Jcc size
+						;;   Jcc _true		; short/far
+						;; _false:
+						;;   <code>
+						;; _true:
+
+						jcc: do jxx 					;-- lay out Jcc _true
+						size: size + length? jcc 		;-- manually skip it's size for the JP
+						append jump do jp 				;-- append JP _true
+						append jump jcc 				;-- append Jcc _true
+					][
+						;;   JP _false		; short - needs to know Jcc size
+						;;   Jcc _true		; short/far
+						;; _false:
+						;;   <code>
+						;; _true:
+
+						jcc: do jxx						;-- lay out Jcc _true
+						append jump rejoin [#{7A} to-bin8 length? jcc]	;-- append JP _false, over the Jcc size
+						append jump jcc					;-- append Jcc _true
+					]
+				]
+			]
 		]
-		if back? [size: negate (size + (length? opcode) + pick [1 4] imm8?)]
-		jmp: rejoin [opcode either imm8? [to-bin8 size][to-bin32 size]]
-		insert any [all [back? tail code] code] jmp
-		length? jmp
+		insert any [all [back? tail code] code] jump
+		length? jump
 	]
 	
 	emit-push-struct: func [slots [integer!]][		;-- number of 32-bit slots
@@ -1276,7 +1466,7 @@ make-profilable make target-class [
 	]
 	
 	emit-push: func [
-		value [char! logic! integer! word! block! string! tag! path! get-word! object! decimal!]
+		value [char! logic! integer! word! block! string! tag! path! get-word! object! decimal! issue!]
 		/with cast [object!]
 		/cdecl										;-- external call
 		/keep
@@ -1324,16 +1514,17 @@ make-profilable make target-class [
 					emit #{6A}						;-- PUSH imm8
 					emit to-bin8 value
 				][
-					emit #{68}						;-- PUSH imm32		
+					emit #{68}						;-- PUSH imm32
 					emit to-bin32 value	
 				]
 			]
+			issue!
 			decimal! [
 				value: either all [cast cast/type/1 = 'float32! not cdecl][
 					IEEE-754/to-binary32/rev value
 				][
 					value: IEEE-754/to-binary64/rev value
-					emit #{68}						;-- PUSH high part		
+					emit #{68}						;-- PUSH high part
 					emit at value 5
 					value
 				]
@@ -1831,9 +2022,11 @@ make-profilable make target-class [
 		if reversed? [emit #{D9C9}]					;-- FXCH st0, st1
 		
 		either compiler/job/cpu-version >= 6.0	[	;-- support for FCOMI* only with P6+
+			; emit #{DFE9}							;-- FUCOMIP st0, st1
 			emit #{DFF1}							;-- FCOMIP st0, st1
 			emit-float-trash-last					;-- pop 2nd argument
 		][
+			; emit #{DDE9}							;-- FUCOMP st0, st1
 			emit #{D8D9}							;-- FCOMP st0, st1
 			emit #{DDD8}							;-- FSTP st0		; pop 2nd argument
 			emit #{9BDFE0}							;-- FSTSW ax		; move FPU flags to ax
@@ -1866,7 +2059,7 @@ make-profilable make target-class [
 
 	emit-float-operation: func [
 		name [word!] args [block!] 
-		/local a b left right spec reversed? type
+		/local a b left right spec reversed? type ldr? reg-right
 	][
 		if verbose >= 3 [print [">>>inlining float op:" mold name mold args]]
 
@@ -1878,6 +2071,19 @@ make-profilable make target-class [
 		left:  compiler/unbox args/1
 		right: compiler/unbox args/2
 		set-width left
+		
+		reg-right: [
+			all [
+				object? args/2
+				block? right
+				ldr?: not find [float! float32!] compiler/get-type right
+				emit-casting args/2 no			;-- load b on FPU stack
+			]
+			if path? right [
+				emit-push/keep args/2			;-- late path loading
+				ldr?: yes
+			]
+		]
 
 		switch a [									;-- load left operand on FPU stack
 			imm [
@@ -1899,6 +2105,7 @@ make-profilable make target-class [
 				]
 			]
 			reg [
+				if all [b = 'reg not path? right][do reg-right]
 				if object? args/1 [
 					if block? left [emit-casting args/1 no]
 					set-width/type compiler/last-type: args/1/type
@@ -1924,15 +2131,7 @@ make-profilable make target-class [
 					emit-casting args/2 no
 				]
 			]
-			reg [
-				all [
-					object? args/2
-					block? right
-					not find [float! float32!] compiler/get-type right
-					emit-casting args/2 no			;-- load b on FPU stack
-				]
-				if path? right [emit-push/keep args/2] ;-- late path loading
-			]
+			reg [unless ldr? [do reg-right]]
 		]
 		
 		reversed?: to logic! all [b = 'reg any [
@@ -1949,6 +2148,17 @@ make-profilable make target-class [
 		]
 	]
 	
+	emit-return-sub: does [
+		if verbose >= 3 [print ">>>emitting RET from subroutine"]
+		emit #{C3}									;-- RET
+	]
+	
+	emit-call-sub: func [name [word!] spec [block!]][
+		if verbose >= 3 [print [">>>emitting CALL subroutine" name]]
+		emit #{E8}									;-- CALL NEAR disp
+		emit-reloc-addr spec						;-- 32-bit relative displacement
+	]
+	
 	emit-cdecl-pop: func [spec [block!] args [block!] /local size slots][
 		size: emitter/arguments-size? spec/4
 		if all [
@@ -1957,7 +2167,7 @@ make-profilable make target-class [
 		][
 			size: size + stack-width				;-- account for extra space
 		]
-		if issue? args/1 [							;-- test for variadic call
+		if compiler/variadic? args/1 [
 			size: call-arguments-size? args/2
 			if spec/2 = 'native [
 				size: size + pick [12 8] args/1 = #typed 	;-- account for extra arguments
@@ -1968,7 +2178,7 @@ make-profilable make target-class [
 			compiler/job/OS <> 'Windows
 			slots: emitter/struct-slots?/check spec/4
 			not all [
-				find [macOS FreeBSD] compiler/job/OS ;-- for those OS,
+				find [macOS FreeBSD NetBSD] compiler/job/OS ;-- for those OS,
 				slots <= 2							;-- <ptr> is used for slots > 2 only
 			]
 			size: size - stack-width				;-- hidden pointer is freed by callee
@@ -2062,7 +2272,7 @@ make-profilable make target-class [
 	
 	emit-call-import: func [args [block!] fspec [block!] spec [block!] attribs [block! none!] /local cdecl?][
 		cdecl?: fspec/3 = 'cdecl
-		if all [issue? args/1 not cdecl?][emit-variadic-data args]
+		if all [compiler/variadic? args/1 not cdecl?][emit-variadic-data args]
 
 		either compiler/job/OS = 'macOS [
 			either PIC? [
@@ -2098,7 +2308,7 @@ make-profilable make target-class [
 				emit-indirect-call spec
 			]
 		][
-			if all [issue? args/1 not cdecl?][emit-variadic-data args]
+			if all [compiler/variadic? args/1 not cdecl?][emit-variadic-data args]
 			emit #{E8}								;-- CALL NEAR disp
 			emit-reloc-addr spec					;-- 32-bit relative displacement
 		]
@@ -2116,7 +2326,7 @@ make-profilable make target-class [
 			emit #{89E7}							;-- MOV edi, esp
 			emit #{83E4F0}							;-- AND esp, -16
 
-			offset: 4 + either issue? args/1 [		;-- account for saved edi
+			offset: 4 + either compiler/variadic? args/1 [ ;-- account for saved edi
 				all [
 					args/1 = #variadic
 					fspec/3 <> 'cdecl
@@ -2231,16 +2441,33 @@ make-profilable make target-class [
 
 	emit-epilog: func [
 		name [word!] locals [block!] args-size [integer!] locals-size [integer!] /with slots [integer! none!]
-		/local fspec attribs vars offset
+		/local fspec attribs vars offset cdecl? SysVABI? macOSABI? clean-hidden-ptr? type
 	][
 		if verbose >= 3 [print [">>>building:" uppercase mold to-word name "epilog"]]
 		
+		fspec: select compiler/functions name
+		
 		if slots [
+			SysVABI?:  all [compiler/job/OS = 'Linux fspec/3 = 'cdecl]
+			macOSABI?: all [compiler/job/OS = 'macOS fspec/3 = 'cdecl]
 			case [
-				slots = 1 [emit #{8B00}]			;-- MOV eax, [eax]
-				slots = 2 [
+				all [not SysVABI? slots = 1][
+					emit #{8B00}					;-- MOV eax, [eax]
+					if all [macOSABI? type: compiler/is-small-struct-float? fspec/4 type/1 = 'float32!][
+						emit #{50}					;-- PUSH eax
+						emit #{D90424}				;-- FLD dword [esp]		; load as 32-bit
+						emit #{83C404} 				;-- ADD esp, 4
+					]
+				]
+				all [not SysVABI? slots = 2][
 					emit #{8B5004}					;-- MOV edx, [eax+4]
 					emit #{8B00}					;-- MOV eax, [eax]
+					if all [macOSABI? type: compiler/is-small-struct-float? fspec/4 find [float! float64!] type/1][
+						emit #{52}					;-- PUSH edx
+						emit #{50}					;-- PUSH eax
+						emit #{DD0424}				;-- FLD qword [esp]		; load as 64-bit
+						emit #{83C408} 				;-- ADD esp, 8
+					]
 				]
 				'else [
 					vars: emitter/stack
@@ -2256,9 +2483,14 @@ make-profilable make target-class [
 					emit #{F3A5}					;-- REP MOVS
 				]
 			]
+			if clean-hidden-ptr?: all [
+				tag? emitter/stack/1
+				any [SysVABI? all [slots > 2 compiler/job/OS = 'macOS]]
+			][
+				emit #{8B45}					    ;-- MOV eax, [ebp+<ptr>]
+				emit to-bin8 emitter/stack/2
+			]
 		]
-		
-		fspec: select compiler/functions name
 		if any [
 			fspec/5 = 'callback
 			all [
@@ -2276,10 +2508,14 @@ make-profilable make target-class [
 		emit #{C9}									;-- LEAVE			; catch flag is skipped
 		either any [
 			zero? args-size
-			fspec/3 = 'cdecl
+			cdecl?: fspec/3 = 'cdecl
 		][
 			;; cdecl: Leave original arguments on stack, popped by caller.
-			emit #{C3}								;-- RET
+			emit either all [cdecl? clean-hidden-ptr?][
+				#{C20400}							;-- RETN 4	; macOS with returned struct by value > 8 bytes
+			][
+				#{C3}								;-- RET
+			]
 		][
 			;; stdcall/reds: Consume original arguments from stack.
 			either compiler/check-variable-arity? locals [
@@ -2291,7 +2527,7 @@ make-profilable make target-class [
 				emit #{56}							;-- PUSH esi		; push return address
 				emit #{C3}							;-- RET
 			][
-				emit #{C2}							;-- RET args-size
+				emit #{C2}							;-- RETN args-size
 				emit to-bin16 round/to/ceiling args-size 4
 			]
 		]

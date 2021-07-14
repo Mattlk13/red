@@ -231,6 +231,7 @@ _function: context [
 		][
 			fctx: GET_CTX(fun)
 			saved: fctx/values
+			assert system/thrown = 0
 			catch RED_THROWN_ERROR [
 				either ctx = global-ctx [
 					call: as function! [] native/code
@@ -249,6 +250,7 @@ _function: context [
 				RED_THROWN_BREAK
 				RED_THROWN_CONTINUE
 				RED_THROWN_THROW	[re-throw]			;-- let exception pass through
+				RED_THROWN_EXIT
 				RED_THROWN_RETURN	[stack/unwind-last]
 				default [0]								;-- else, do nothing
 			]
@@ -305,7 +307,7 @@ _function: context [
 		while [value < tail][							;-- 1st pass: detect if out-of-order (ooo?)
 			word:  as red-word! value
 			if TYPE_OF(value) <> TYPE_WORD [
-				fire [TO_ERROR(script no-refine) fname word]
+				fire [TO_ERROR(script bad-refine) word]
 			]
 
 			unless ooo? [
@@ -659,7 +661,7 @@ _function: context [
 		collect-deep list ignore body
 		
 		if 0 < block/rs-length? list [
-			unless local-ref? spec [
+			if -1 = count-locals spec/node spec/head yes [
 				block/rs-append spec as red-value! refinements/local
 			]
 			block/rs-append-block spec list
@@ -739,7 +741,7 @@ _function: context [
 		]
 	]
 	
-	validate: func [									;-- temporary mimalist spec checking
+	validate: func [									;-- temporary minimalist spec checking
 		spec [red-block!]
 		/local
 			value  [red-value!]
@@ -771,7 +773,7 @@ _function: context [
 						value: value + 1
 					]
 				]
-				TYPE_SET_WORD [							;-- only return: is allowed as a set-word!
+				TYPE_SET_WORD [								 ;-- only return: is allowed as a set-word!
 					w: as red-word! value
 					if words/return* <> symbol/resolve w/symbol [
 						fire [TO_ERROR(script bad-func-def)	w]
@@ -780,18 +782,37 @@ _function: context [
 					next2: next + 1
 					unless all [
 						next < end
-						TYPE_OF(next) = TYPE_BLOCK		;-- return: must have a type spec
-						any [							;-- This allows a return: spec before each refinement
-							next2 = end
-							TYPE_OF(next2) = TYPE_REFINEMENT
+						TYPE_OF(next) = TYPE_BLOCK			 ;-- return: must have a type spec
+						any [
+							next2 = end						 ;-- return: with type spec is enough
+							TYPE_OF(next2) = TYPE_REFINEMENT ;-- This allows a return: spec before each refinement
+							all [							 ;-- docstring is allowed if at the tail
+								TYPE_OF(next2) = TYPE_STRING
+								next2 + 1 = end
+							]
 						]
 					][
 						fire [TO_ERROR(script bad-func-def) value]
 					]
 					value: next
 				]
+				TYPE_REFINEMENT [
+					next: value + 1
+					if next < end [
+						if all [
+							TYPE_OF(next) <> TYPE_WORD
+							TYPE_OF(next) <> TYPE_GET_WORD
+							TYPE_OF(next) <> TYPE_LIT_WORD
+							TYPE_OF(next) <> TYPE_REFINEMENT
+							TYPE_OF(next) <> TYPE_SET_WORD
+							TYPE_OF(next) <> TYPE_STRING
+						][
+							fire [TO_ERROR(script bad-func-def) next]
+						]
+					]
+					value: value + 1
+				]
 				TYPE_LIT_WORD
-				TYPE_REFINEMENT
 				TYPE_BLOCK
 				TYPE_STRING [
 					value: value + 1
@@ -804,17 +825,10 @@ _function: context [
 		check-duplicates spec
 	]
 	
-	local-ref?: func [
-		spec	[red-block!]
-		return: [logic!]
-	][
-		0 <> count-locals spec/node spec/head
-	]
-
-
 	count-locals: func [
 		node	[node!]
 		offset	[integer!]
+		local?	[logic!]								;-- TRUE: return -1 to signify lack of /local refinement
 		return: [integer!]
 		/local
 			value  [red-value!]
@@ -845,7 +859,7 @@ _function: context [
 			]
 			value: value + 1
 		]
-		cnt
+		either all [local? not count?][-1][cnt]
 	]
 	
 	init-locals: func [
@@ -880,7 +894,7 @@ _function: context [
 	][
 		#if debug? = yes [if verbose > 0 [print-line "_function/push"]]
 
-		f-ctx: either null? ctx [_context/make spec yes no][ctx]
+		f-ctx: either null? ctx [_context/make spec yes no CONTEXT_FUNCTION][ctx]
 		fun: as red-function! stack/push*
 		fun/header:  TYPE_UNSET
 		fun/spec:	 spec/node

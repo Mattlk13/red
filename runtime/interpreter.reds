@@ -179,6 +179,7 @@ interpreter: context [
 		saved: ctx/values
 		ctx/values: as node! stack/arguments
 		stack/set-in-func-flag yes
+		assert system/thrown = 0
 		
 		catch RED_THROWN_ERROR [eval body yes]
 		
@@ -437,6 +438,7 @@ interpreter: context [
 		end	  	[red-value!]
 		path	[red-path!]
 		ref-pos [red-value!]
+		origin	[red-native!]
 		return: [red-value!]
 		/local
 			fun	  	  [red-function!]
@@ -497,6 +499,7 @@ interpreter: context [
 				blk/extra:	0
 			][
 				native/args: args
+				origin/args: args
 			]
 		]
 		
@@ -563,7 +566,12 @@ interpreter: context [
 								BS_TEST_BIT(bits type set?)
 								unless set? [
 									index: offset/value - 1
-									ERR_EXPECT_ARGUMENT(type index)
+									fire [
+										TO_ERROR(script expect-arg)
+										fname
+										datatype/push type
+										error/get-call-argument index
+									]
 								]
 							]
 							offset: offset + 1
@@ -594,7 +602,7 @@ interpreter: context [
 									unless set? [
 										fire [
 											TO_ERROR(script expect-arg)
-											stack/get-call
+											fname
 											datatype/push type
 											value
 										]
@@ -660,6 +668,7 @@ interpreter: context [
 			gparent	[red-value!]
 			saved	[red-value!]
 			arg		[red-value!]
+			tail?	[logic!]
 	][
 		#if debug? = yes [if verbose > 0 [print-line "eval: path"]]
 		
@@ -683,13 +692,14 @@ interpreter: context [
 				if set? [fire [TO_ERROR(script invalid-path-set) path]]
 				if get? [fire [TO_ERROR(script invalid-path-get) path]]
 				pc: eval-code parent pc end yes path item - 1 parent
+				unless sub? [stack/set-last stack/top]
 				return pc
 			]
-			TYPE_UNSET [fire [TO_ERROR(script no-value)	head]]
+			TYPE_UNSET [fire [TO_ERROR(script unset-path) path head]]
 			default	   [0]
 		]
 		if set? [object/path-parent/header: TYPE_NONE]	;-- disables owner checking
-				
+		
 		while [item < tail][
 			#if debug? = yes [if verbose > 0 [print-line ["eval: path parent: " TYPE_OF(parent)]]]
 			
@@ -701,12 +711,13 @@ interpreter: context [
 				]
 				default [item]
 			]
-			if TYPE_OF(value) = TYPE_UNSET [fire [TO_ERROR(script no-value) item]]
+			if TYPE_OF(value) = TYPE_UNSET [fire [TO_ERROR(script invalid-path) path item]]
 			#if debug? = yes [if verbose > 0 [print-line ["eval: path item: " TYPE_OF(value)]]]
 			
 			gparent: parent								;-- save grand-parent reference
-			arg: either all [set? item + 1 = tail][stack/arguments][null]
-			parent: actions/eval-path parent value arg path case?
+			tail?: item + 1 = tail
+			arg: either all [set? tail?][stack/arguments][null]
+			parent: actions/eval-path parent value arg path case? get? tail?
 			
 			unless get? [
 				switch TYPE_OF(parent) [
@@ -715,6 +726,7 @@ interpreter: context [
 					TYPE_ROUTINE
 					TYPE_FUNCTION [
 						pc: eval-code parent pc end sub? path item gparent
+						if TYPE_OF(item) = TYPE_PAREN [copy-cell stack/top - 1 stack/top - 2]
 						unless sub? [stack/set-last stack/top]
 						return pc
 					]
@@ -740,24 +752,26 @@ interpreter: context [
 		parent	[red-value!]
 		return: [red-value!]
 		/local
+			caller origin [red-native!]
 			name  [red-word!]
 			obj   [red-object!]
 			fun	  [red-function!]
 			int	  [red-integer!]
-			saved [red-value!]
 			s	  [series!]
 			ctx	  [node!]
 	][
 		name: as red-word! either null? slot [pc - 1][slot]
+
 		if TYPE_OF(name) <> TYPE_WORD [name: words/_anon]
-		saved: stack/push value							;-- prevent word's value slot to be corrupted #2199
+		caller: as red-native! stack/push value			;-- prevent word's value slot to be corrupted #2199
+		origin: as red-native! value
 		
 		switch TYPE_OF(value) [
 			TYPE_ACTION 
 			TYPE_NATIVE [
 				#if debug? = yes [if verbose > 0 [log "pushing action/native frame"]]
 				stack/mark-interp-native name
-				pc: eval-arguments as red-native! value pc end path slot 	;-- fetch args and exec
+				pc: eval-arguments caller pc end path slot origin ;-- fetch args and exec
 				either sub? [stack/unwind][stack/unwind-last]
 				#if debug? = yes [
 					if verbose > 0 [
@@ -769,8 +783,8 @@ interpreter: context [
 			TYPE_ROUTINE [
 				#if debug? = yes [if verbose > 0 [log "pushing routine frame"]]
 				stack/mark-interp-native name
-				pc: eval-arguments as red-native! value pc end path slot
-				exec-routine as red-routine! value
+				pc: eval-arguments caller pc end path slot origin
+				exec-routine as red-routine! caller
 				either sub? [stack/unwind][stack/unwind-last]
 				#if debug? = yes [
 					if verbose > 0 [
@@ -798,9 +812,8 @@ interpreter: context [
 					]
 				]
 				stack/mark-interp-func name
-				pc: eval-arguments as red-native! value pc end path slot
-				value: saved
-				_function/call as red-function! value ctx
+				pc: eval-arguments origin pc end path slot origin
+				_function/call as red-function! caller ctx
 				either sub? [stack/unwind][stack/unwind-last]
 				#if debug? = yes [
 					if verbose > 0 [
@@ -824,6 +837,7 @@ interpreter: context [
 		passive?  [logic!]
 		return:   [red-value!]
 		/local
+			saved  [red-value! value]
 			next   [red-word!]
 			value  [red-value!]
 			left   [red-value!]
@@ -843,7 +857,7 @@ interpreter: context [
 			if infix? [
 				stack/mark-interp-native as red-word! pc + 1
 				sub?: yes								;-- force sub? for infix expressions
-				op: value
+				op: copy-cell value saved
 			]
 		]
 		
@@ -958,7 +972,7 @@ interpreter: context [
 				pc: eval-path value pc end no yes sub? no
 			]
 			TYPE_LIT_PATH [
-				value: stack/push pc
+				value: either sub? [stack/push pc][stack/set-last pc]
 				value/header: TYPE_PATH
 				value/data3: 0							;-- ensures args field is null
 				pc: pc + 1
@@ -1079,7 +1093,7 @@ interpreter: context [
 			while [value < tail][
 				#if debug? = yes [if verbose > 0 [log "root loop..."]]
 				value: eval-expression value tail no no no
-				if value + 1 < tail [stack/reset]
+				if value + 1 <= tail [stack/reset]
 			]
 		]
 		either chain? [stack/unwind-last][stack/unwind]

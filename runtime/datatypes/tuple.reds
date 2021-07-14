@@ -73,25 +73,55 @@ tuple: context [
 		/local
 			len  [integer!]
 			str  [red-string!]
-			bin  [red-binary!]
 			s	 [series!]
-			unit [integer!]
+			p table [byte-ptr!]
+			unit r g b a acc c hex [integer!]
+			do-err decode-char [subroutine!]
 	][
+		do-err: [fire [TO_ERROR(script invalid-data) issue]]
+		decode-char: [
+			c: 7Fh and string/get-char p unit
+			if any [c = -1 c < as-integer space][do-err]
+			c: c + 1
+			hex: as-integer table/c
+			if hex > 15 [do-err]
+			p: p + unit
+			hex
+		]
+		table: string/escape-url-chars
 		str: as red-string! stack/push as red-value! symbol/get issue/symbol
-		str/head: 0								;-- /head = -1 (casted from symbol!)
+		str/head: 0										;-- /head = -1 (casted from symbol!)
 		s: GET_BUFFER(str)
 		unit: GET_UNIT(s)
 		len: string/rs-length? str
-		if len > 24 [len: 24]
-
-		str/node: binary/decode-16 
-			(as byte-ptr! s/offset) + (str/head << (unit >> 1))
-			len
-			unit
-		if null? str/node [fire [TO_ERROR(script invalid-data) issue]]
-		tp: from-binary as red-binary! str tp
-		stack/pop 1
-		tp
+		r: g: b: hex: 0
+		a: -1
+		p: as byte-ptr! s/offset
+		
+		switch len [
+			3 [
+				decode-char
+				r: hex << 4 or hex
+				decode-char
+				g: hex << 4 or hex
+				decode-char
+				b: hex << 4 or hex
+			]
+			6 8 [
+				acc: decode-char
+				r: acc << 4 or decode-char
+				acc: decode-char
+				g: acc << 4 or decode-char
+				acc: decode-char
+				b: acc << 4 or decode-char
+				if len = 8 [
+					acc: decode-char
+					a: acc << 4 or decode-char
+				]
+			]
+			default [do-err]
+		]
+		make-rgba stack/push* r g b a
 	]
 	
 	make-rgba: func [
@@ -108,7 +138,7 @@ tuple: context [
 		size: either a = -1 [a: 0 3][4]
 		tp: as red-tuple! slot
 		tp/header: TYPE_TUPLE or (size << 19)
-		tp/array1: (r << 24) or (g << 16 and 00FF0000h) or (b << 8 and FF00h) or (a and FFh)
+		tp/array1: (a << 24) or (b << 16 and 00FF0000h) or (g << 8 and FF00h) or (r and FFh)
 		tp/array2: 0
 		tp/array3: 0
 		tp
@@ -219,7 +249,7 @@ tuple: context [
 					v: either n <= size2 [as-integer tp2/n][0]
 				]
 				v1: either n <= size1 [as-integer tp1/n][0]
-				v1: integer/do-math-op v1 v type
+				v1: integer/do-math-op v1 v type null
 				either v1 > 255 [v1: 255][if negative? v1 [v1: 0]]
 				tp1/n: as byte! v1
 				n = size
@@ -264,7 +294,7 @@ tuple: context [
 			n: 0
 			until [
 				n: n + 1
-				array/n: as-byte _random/rand % ((as-integer array/n) + 1)
+				array/n: as-byte (-1 + _random/int-uniform-distr secure? (1 + as-integer array/n))
 				n = size
 			]
 		]
@@ -330,7 +360,7 @@ tuple: context [
 				proto: from-binary as red-binary! spec proto
 			]
 			TYPE_ISSUE [
-				from-issue as red-word! spec proto
+				proto: from-issue as red-word! spec proto
 			]
 			TYPE_ANY_STRING [
 				i: 0
@@ -403,6 +433,8 @@ tuple: context [
 		value	[red-value!]
 		path	[red-value!]
 		case?	[logic!]
+		get?	[logic!]
+		tail?	[logic!]
 		return:	[red-value!]
 		/local
 			int  [red-integer!]
@@ -505,6 +537,22 @@ tuple: context [
 		#if debug? = yes [if verbose > 0 [print-line "tuple/xor~"]]
 		as red-value! do-math OP_XOR
 	]
+	
+	complement: func [
+		tp      [red-tuple!]
+		return: [red-value!]
+		/local
+			array [byte-ptr!]
+			size  [integer!]
+	][
+		#if debug? = yes [if verbose > 0 [print-line "tuple/complement"]]
+		
+		array: GET_TUPLE_ARRAY(tp)
+		size:  TUPLE_SIZE?(tp)
+		
+		loop size [array/value: not array/value array: array + 1]
+		as red-value! tp
+	]
 
 	length?: func [
 		tp		[red-tuple!]
@@ -603,20 +651,27 @@ tuple: context [
 	reverse: func [
 		tuple	 [red-tuple!]
 		part-arg [red-value!]
+		skip-arg [red-value!]
 		return:	 [red-value!]
 		/local
 			int  [red-integer!]
+			temp [red-value! value]						;-- enough to hold max tuple (payload)
 			part [integer!]
 			tmp  [byte!]
 			size [integer!]
+			skip [integer!]
 			n	 [integer!]
 			tp   [byte-ptr!]
+			head [byte-ptr!]
+			tail [byte-ptr!]
 	][
 		#if debug? = yes [if verbose > 0 [print-line "tuple/reverse"]]
 
-		tp: (as byte-ptr! tuple) + 4
+		tp:   as byte-ptr! :tuple/array1
 		size: TUPLE_SIZE?(tuple)
 		part: size
+		skip: 1
+		
 		if OPTION?(part-arg) [
 			either TYPE_OF(part-arg) = TYPE_INTEGER [
 				int: as red-integer! part-arg
@@ -628,16 +683,43 @@ tuple: context [
 				ERR_INVALID_REFINEMENT_ARG(refinements/_part part-arg)
 			]
 		]
+		
+		if OPTION?(skip-arg) [
+			unless TYPE_OF(skip-arg) = TYPE_INTEGER [ERR_INVALID_REFINEMENT_ARG(refinements/_skip skip-arg)]
+			int:  as red-integer! skip-arg
+			skip: int/value								;-- 1/2 of tuple size max
+			
+			if skip = part [return as red-value! tuple]	;-- early exit if nothing to reverse
+			if skip <= 0 [fire [TO_ERROR(script out-of-range) skip-arg]]
+			if any [skip > part part % skip <> 0][ERR_INVALID_REFINEMENT_ARG(refinements/_skip skip-arg)]
+		]
 
 		if part < size [size: part]
-		n: 1
-		while [n < size] [
-			tmp: tp/n
-			tp/n: tp/size
-			tp/size: tmp
-			n: n + 1
-			size: size - 1
+		
+		either skip = 1 [								;-- faster branch for general case
+			n: skip
+			while [n < size][
+				tmp: tp/n
+				tp/n: tp/size
+				tp/size: tmp
+				n: n + 1
+				size: size - 1
+			]
+		][
+			head: tp
+			tail: head + size - skip
+			tp:   as byte-ptr! :temp
+			
+			while [head < tail][
+				copy-memory tp   head skip
+				copy-memory head tail skip
+				copy-memory tail tp   skip
+				
+				head: head + skip
+				tail: tail - skip
+			]
 		]
+		
 		as red-value! tuple
 	]
 
@@ -670,7 +752,7 @@ tuple: context [
 			null			;odd?
 			;-- Bitwise actions --
 			:and~
-			null			;complement
+			:complement
 			:or~
 			:xor~
 			;-- Series actions --

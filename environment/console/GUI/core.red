@@ -12,21 +12,23 @@ Red [
 
 object [
 	lines:		make block! 1000				;-- line buffer
-	nlines:		make block! 1000				;-- line count of each line, changed according to window width
-	heights:	make block! 1000				;-- height of each (wrapped) line, in pixels
+	nlines:		clear make vector! 1000			;-- line count of each line, changed according to window width
+	heights:	clear make vector! 1000			;-- height of each (wrapped) line, in pixels
+	flags:		clear make vector! 1000			;-- flags of each line. e.g. hidden flag
 	selects:	make block! 8					;-- selected texts: [start-linenum idx end-linenum idx]
 
 	max-lines:	1000							;-- maximum size of the line buffer
 	full?:		no								;-- is line buffer full?
 	ask?:		no								;-- is it in ask loop
 	prin?:		no								;-- start prin?
-	newline?:	no								;-- start a new line?
+	newline?:	yes								;-- start a new line?
 	mouse-up?:	yes
 	ime-open?:	no
 	ime-pos:	0
 
 	top:		1								;-- index of the first visible line in the line buffer
-	line:		none							;-- current editing line
+	line:		""								;-- current editing line
+	line-pos:	0								;-- current editing line's position in lines
 	pos:		0								;-- insert position of the current editing line
 
 	scroll-y:	0								;-- in pixels
@@ -85,6 +87,32 @@ object [
 		comment!	[128.128.128]
 	)
 
+	ask: func [question [string!] hide?][
+		either prin? [
+			line: append last lines question
+			line: tail line
+		][
+			line: make string! 8
+			line: insert line question
+			add-line head line
+		]
+		pos: 0
+		line-pos: length? lines
+		ask?: yes
+		reset-top/force
+		clear-stack
+		set-flag hide?
+		either paste/resume [
+			do-ask-loop/no-wait
+		][
+			system/view/platform/redraw gui-console-ctx/console
+			system/view/auto-sync?: yes
+			do-events
+		]
+		ask?: no
+		line
+	]
+
 	do-ask-loop: function [/no-wait][
 		system/view/platform/do-event-loop no-wait
 	]
@@ -94,7 +122,11 @@ object [
 		caret/enabled?: no
 		caret/rate: none
 		either escape [append line #"^["][
-			if all [not empty? line line <> first history][insert history line]
+			if all [
+				not empty? line
+				not strict-equal? line first history
+				zero? last flags
+			][insert history line]
 			hist-idx: 0
 		]
 		prin?: no
@@ -102,59 +134,78 @@ object [
 		system/view/platform/exit-event-loop
 	]
 
-	refresh: func [][
-		system/view/platform/redraw console
-		do-ask-loop/no-wait
-	]
+	refresh: func [][system/view/platform/redraw console]
 
 	vprin: func [str [string!]][
 		either empty? lines [
 			append lines str
+			append flags 0
 		][
 			append last lines str
 		]
 		calc-top
 	]
 
-	vprint: func [str [string!] lf? [logic!] /local s cnt][
+	vprint: func [str [string!] lf? [logic!] /local s cnt first-prin?][
 		unless console/state [exit]
+		unless gui-console-ctx/win/visible? [
+			gui-console-ctx/win/visible?: yes
+			show gui-console-ctx/win		;-- force a show in case auto-sync? is off
+		]
 
-		if all [not lf? newline?][newline?: no add-line make string! 8]
+		if all [not lf? newline?][newline?: no first-prin?: yes]
 		if lf? [newline?: yes]
 		s: find str lf
 		either s [
 			cnt: 0
-			until [
-				add-line copy/part str s
+			if all [
+				not all [lf? not prin?]
+				not same? head line last lines
+			][
+				vprin copy/part str s
+				str: skip s 1
+				s: find str lf
+			]
+			while [s][
+				add-lines copy/part str s no
 				str: skip s 1
 				cnt: cnt + 1
 				if cnt = 100 [
 					refresh
 					cnt: 0
 				]
-				not s: find str lf
+				s: find str lf
 			]
-			either str/1 = lf [
-				add-line ""
-			][
-				either all [lf? not prin?][add-line copy str][vprin str]
-			]
+			add-lines str yes
 		][
-			either all [lf? not prin?][add-line copy str][vprin str]
+			either all [lf? not prin?][add-lines str yes][
+				if first-prin? [add-line make string! 8]
+				vprin str
+			]
 		]
 		prin?: not lf?
-		if system/console/running? [
-			system/view/platform/redraw console
-		]
+		refresh
 		()				;-- return unset!
 	]
 
-	reset-buffer: func [blk [block!] /advance /local src][
+	reset-buffer: func [blk [block! vector!] /advance /local src][
 		src: blk
 		blk: head blk
 		move/part src blk max-lines
 		clear src
 		blk
+	]
+
+	set-flag: func [val [integer! none! logic!]][
+		val: case [
+			none? val	[0]
+			logic? val	[either val [1][0]]
+			true [val]
+		]
+		;-- reuse the flags to store the prompt length
+		;-- just for convienient as we only have one flag for now
+		unless zero? val [val: length? head line]
+		poke flags length? lines val
 	]
 
 	add-line: func [str [string!]][
@@ -165,17 +216,35 @@ object [
 				lines: reset-buffer lines
 				nlines: reset-buffer nlines
 				heights: reset-buffer heights
+				flags: reset-buffer flags
 			][
 				lines: next lines
 				nlines: next nlines
 				heights: next heights
+				flags: next flags
 			]
 			append lines str
+			append flags 0
 			calc-top/new
 		][
 			append lines str
+			append flags 0
 			full?: max-lines = length? lines
 			calc-top
+		]
+	]
+
+	add-lines: function [str [string!] copy? [logic!]][
+		cols: system/console/size/x
+		either 30 * cols > length? str [
+			if copy? [str: copy str]
+			add-line str
+		][												;-- split very long string
+			until [
+				add-line copy/part str cols				;-- TBD use slice! to avoid copying
+				str: skip str cols
+				empty? str
+			]
 		]
 	]
 
@@ -256,7 +325,7 @@ object [
 
 	adjust-console-size: function [size [pair!]][
 		cols: to integer! size/x - 20 - pad-left / char-width		;-- -20 compensates for scrollbar
-		rows: size/y / line-h
+		rows: to-integer size/y / line-h
 		system/console/size: as-pair cols rows
 	]
 
@@ -266,7 +335,7 @@ object [
 		new-size/y: y + line-h
 		box/size: new-size
 		if scroller [
-			page-cnt: y / line-h
+			page-cnt: to-integer y / line-h
 			scroller/page-size: page-cnt
 			scroller/max-size: line-cnt - 1 + page-cnt
 			scroller/position: scroller/position
@@ -301,16 +370,18 @@ object [
 
 	zoom: func [event /local ft sz][
 		box/line-spacing: none
-		ft: box/font
-		sz: ft/size
-		either event/picked > 0 [sz: sz + 1][sz: sz - 1]
-		if sz = 5 [exit]		;-- mininum size
-		ft/size: sz
+		either object? event [ft: event][
+			ft: box/font
+			sz: ft/size
+			either event/picked > 0 [sz: sz + 1][sz: sz - 1]
+			if sz = 5 [exit]		;-- mininum size
+			ft/size: sz
+		]
 		update-cfg ft none
 	]
 
 	update-caret: func [/local len n s h lh offset][
-		unless line [exit]
+		unless all [line mouse-up?][exit]
 		n: top
 		h: 0
 		len: length? skip lines top
@@ -370,6 +441,8 @@ object [
 
 		offset-to-line event/offset
 		mouse-to-caret event/offset
+		caret/rate: none
+		caret/enabled?: no
 	]
 
 	mouse-up: func [event [event!]][
@@ -377,7 +450,10 @@ object [
 		if empty? lines [exit]
 		mouse-up?: yes
 		if 2 = length? selects [clear selects]
+		caret/enabled?: yes
+		mouse-to-caret event/offset
 		system/view/platform/redraw console
+		caret/rate: 2
 	]
 
 	mouse-move: func [offset /local y][
@@ -410,7 +486,6 @@ object [
 	select-to-offset: func [offset][
 		clear skip selects 2
 		offset-to-line offset
-		mouse-to-caret offset
 		system/view/platform/redraw console
 	]
 
@@ -422,18 +497,17 @@ object [
 		]
 	]
 
-	jump-word: func [left? [logic!] return: [integer!] /local start n][
+	jump-word: func [left? [logic!] return: [integer!] /local n dlm wc here p][
+		dlm: charset {/\^^[](){}"@:; ^-}				;-- word delimiters
+		wc: negate dlm
+		here: skip line pos
 		either left? [
-			start: find/reverse/tail skip line pos #" "
-			either start [
-				n: (index? start) - pos - index? line
-				if all [zero? n pos <> 0][n: -1]
-			][n: pos]
+			rev: reverse copy/part head line here
+			parse rev [any dlm any wc p:]
+			n: offset? p rev
 		][
-			start: find skip line pos #" "
-			unless start [start: tail line]
-			n: (index? start) - pos - index? line
-			if all [zero? n pos <> length? line][n: 1]
+			parse here [any dlm any wc p:]
+			n: offset? here p
 		]
 		n
 	]
@@ -490,7 +564,7 @@ object [
 
 		n: top
 		either delta > 0 [						;-- scroll up
-			delta: delta + (scroll-y / line-h + pick nlines n)
+			delta: delta + (to-integer scroll-y / line-h + pick nlines n)
 			scroll-y: 0
 			until [
 				cnt: pick nlines n
@@ -507,7 +581,7 @@ object [
 			if zero? n [n: 1 scroll-y: 0]
 		][										;-- scroll down
 			len: length? lines
-			delta: scroll-y / line-h + delta
+			delta: to-integer scroll-y / line-h + delta
 			scroll-y: 0
 			until [
 				cnt: pick nlines n
@@ -596,15 +670,25 @@ object [
 
 	paste: func [/resume /local nl? start end idx][
 		delete-selected
-		unless resume [clipboard: read-clipboard]
+		unless resume [
+			clipboard: read-clipboard
+			if image? clipboard [clipboard: none]
+			if block? clipboard [clipboard: mold clipboard]
+		]
 		if all [clipboard not empty? clipboard][
 			start: clipboard
-			end: find clipboard #"^M"
-			either end [nl?: yes][nl?: no end: tail clipboard]
+			end: find clipboard #"^/"
+			either end [
+				nl?: yes
+				if end/-1 = #"^M" [end: back end]
+			][
+				nl?: no
+				end: tail clipboard
+			]
 			insert/part skip line pos start end
 			idx: pos
 			pos: pos + offset? start end
-			clipboard: skip end either end/2 = #"^/" [2][1]
+			clipboard: skip end either end/1 = #"^M" [2][1]
 			if nl? [
 				caret/enabled?: no
 				insert history line
@@ -623,7 +707,7 @@ object [
 				paste-cnt: 0
 			]
 		]
-		not empty? clipboard
+		all [clipboard not empty? clipboard]
 	]
 
 	cut: func [][
@@ -661,11 +745,7 @@ object [
 		p-idx: index? str
 		candidates: red-complete-ctx/complete-input skip str pos yes
 		case [
-			empty? candidates [
-				insert skip str pos char
-				pos: pos + 1
-				clear redo-stack
-			]
+			empty? candidates [0]		;-- TBD: beep
 			1 = length? candidates [
 				clear head str
 				pos: (index? candidates/1) - p-idx
@@ -680,6 +760,7 @@ object [
 				pos: (index? candidates/1) - p-idx
 				append str head candidates/1
 				add-line head line
+				line-pos: length? lines
 			]
 		]
 		clear selects
@@ -730,7 +811,10 @@ object [
 					idx: 0
 				]
 				if n > 0 [
-					if start-idx < end-idx [pos: pos - n]
+					if start-idx < end-idx [
+						pos: pos - n
+						if pos < 0 [pos: 0]
+					]
 					s: copy/part skip line idx n
 					reduce/into [idx s] undo-stack
 					remove/part skip line idx n
@@ -745,38 +829,36 @@ object [
 	delete-text: func [
 		ctrl?	[logic!]
 		/backward
-		/local n idx s del?
+		/local n idx s del? rev dlm wc p here
 	][
 		if delete-selected [exit]
 
+		dlm: charset {/\^^[](){}"@:; ^-}				;-- word delimiters
+		wc: negate dlm
 		del?: no
-		if all [not backward pos <> 0][
-			if #" " = pick line pos [ctrl?: no]
-			either ctrl? [
-				idx: index? line
-				start-idx: find/reverse/tail skip line pos #" "
-				either all [start-idx (index? start-idx) > idx][
-					n: pos + idx - index? start-idx
-				][
-					start-idx: line
-					n: pos
-				]
-				pos: pos - n
-				s: take/part start-idx n
-				reduce/into [pos s] undo-stack
-			][
-				pos: pos - 1
-				s: take skip line pos
-				reduce/into [pos s] undo-stack
+		here: skip line pos
+		n: 1
+		if all [backward pos <> 0][
+			if ctrl? [
+				rev: reverse copy/part head line here
+				parse rev [any dlm any wc p:]
+				n: offset? rev p
+			]
+			pos: pos - n
+			del?: yes
+		]
+		if all [not backward pos < length? line][
+			if ctrl? [
+				parse here [any dlm any wc p:]
+				n: offset? here p
 			]
 			del?: yes
 		]
-		if all [backward pos < length? line][
-			s: take skip line pos
+		if del? [
+			s: take/part skip line pos n
 			reduce/into [pos s] undo-stack
-			del?: yes
+			clear selects clear redo-stack
 		]
-		if del? [clear selects clear redo-stack]
 	]
 
 	clean: func [][
@@ -786,6 +868,7 @@ object [
 		line-y:		0
 		line-cnt:	0
 		screen-cnt: 0
+		line-pos:	1
 		clear lines
 		clear nlines
 		clear heights
@@ -803,6 +886,11 @@ object [
 
 	press-key: func [event [event!] /local char ctrl? shift?][
 		unless ask? [exit]
+		if line-pos <> length? lines [
+			poke lines line-pos copy head line
+			add-line head line
+			line-pos: length? lines
+		]
 		if ime-open? [
 			remove/part skip line ime-pos pos - ime-pos
 			pos: ime-pos
@@ -824,14 +912,15 @@ object [
 		]]
 		switch/default char [
 			#"^M"	[exit-ask-loop]					;-- ENTER key
-			#"^H"	[delete-text ctrl?]
+			#"^H"	[delete-text/backward ctrl?]	;-- both Backspace and Ctrl+H
+			#"^~"	[delete-text/backward yes]		;-- Ctrl + Backspace
 			#"^-"	[unless empty? line [do-completion line char]]
 			left	[move-caret/event -1 event]
 			right	[move-caret/event 1 event]
 			up		[either ctrl? [scroll-lines  1][fetch-history 'prev]]
 			down	[either ctrl? [scroll-lines -1][fetch-history 'next]]
 			insert	[if event/shift? [paste exit]]
-			delete	[delete-text/backward ctrl?]
+			delete	[either event/shift? [cut][delete-text ctrl?]]
 			#"^A" home	[if shift? [select-text 0 - pos] pos: 0]
 			#"^E" end	[
 				if shift? [select-text (length? line) - pos]
@@ -843,7 +932,6 @@ object [
 			#"^Z"	[undo undo-stack redo-stack]
 			#"^Y"	[undo redo-stack undo-stack]
 			#"^["	[exit-ask-loop/escape]
-			#"^~"	[delete-text yes]				;-- Ctrl + Backspace
 			#"^L"	[clean]
 			#"^K"	[clear line pos: 0]				;-- delete the whole line
 		][
@@ -901,8 +989,9 @@ object [
 		if swap? [move/part skip selects 2 selects 2]
 	]
 
-	paint: func [/local str cmds y n h cnt delta num end styles][
+	paint: func [/local txt str cmds y n h cnt delta num end styles][
 		if empty? lines [exit]
+
 		cmds: [pen color text 0x0 text-box]
 		cmds/2: foreground
 		cmds/4/x: pad-left
@@ -913,8 +1002,12 @@ object [
 		num: line-cnt
 		styles: box/data
 		foreach str at lines top [
-			box/text: str
-			if color? [highlight/add-styles str clear styles theme]
+			txt: either zero? cnt: pick flags n [str][
+				txt: copy/part str cnt
+				append/dup txt "*" length? skip str cnt
+			]
+			box/text: txt
+			if color? [highlight/add-styles txt clear styles theme]
 			mark-selects styles n
 			cmds/4/y: y
 			system/view/platform/draw-face console cmds
@@ -931,7 +1024,7 @@ object [
 			if y > end [break]
 		]
 		line-y: y - h
-		screen-cnt: y / line-h
+		screen-cnt: to-integer y / line-h
 		if screen-cnt > page-cnt [screen-cnt: page-cnt]
 		update-caret
 		update-scroller line-cnt - num

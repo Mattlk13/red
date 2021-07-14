@@ -23,6 +23,7 @@ redc: context [
 	win-version:	none								;-- Windows version extracted from "ver" command
 	SSE3?:			yes
 
+	Linux?:    system/version/4 = 4
 	Windows?:  system/version/4 = 3
 	macOS?:    system/version/4 = 2
 	load-lib?: any [encap? find system/components 'Library]
@@ -31,7 +32,7 @@ redc: context [
 		temp-dir: switch/default system/version/4 [
 			2 [											;-- MacOS X
 				libc: load/library %libc.dylib
-				sys-call: make routine! [cmd [string!]] libc "system"
+				sys-call: make routine! [cmd [string!] return: [integer!]] libc "system"
 				join any [attempt [to-rebol-file get-env "HOME"] %/tmp] %/.red/
 			]
 			3 [											;-- Windows
@@ -101,7 +102,7 @@ redc: context [
 					]
 					append dirize to-rebol-file trim path %Red/
 				][
-					sys-call: func [cmd][call/wait cmd]
+					sys-call: func [cmd [string!]][call/wait cmd]
 					append to-rebol-file get-env "ALLUSERSPROFILE" %/Red/
 				]
 			]
@@ -113,6 +114,7 @@ redc: context [
 				fail "Can't read /proc/cpuinfo"
 			]
 			any [
+				exists? libc: %/lib/ld-musl-i386.so.1			; musl, e.g. Alpine Linux
 				exists? libc: %libc.so.6
 				exists? libc: %/lib32/libc.so.6
 				exists? libc: %/lib/i386-linux-gnu/libc.so.6	; post 11.04 Ubuntu
@@ -123,7 +125,7 @@ redc: context [
 				exists? libc: %/lib/libc.so.5
 			]
 			libc: load/library libc
-			sys-call: make routine! [cmd [string!]] libc "system"
+			sys-call: make routine! [cmd [string!] return: [integer!]] libc "system"
 			join any [attempt [to-rebol-file get-env "HOME"] %/tmp] %/.red/
 		]
 	]
@@ -209,9 +211,9 @@ redc: context [
 	
 	get-lib-suffix: does [
 		case [
-			Windows? 			 [%.dll]
-			system/version/4 = 2 [%.dylib]
-			'else 				 [%.so]
+			Windows? [%.dll]
+			macOS?   [%.dylib]
+			'else    [%.so]
 		]
 	]
 
@@ -249,14 +251,13 @@ redc: context [
 	]
 
 	red-system?: func [file [file!] /local ws rs?][
-		ws: charset " ^-^/^M"
+		ws: charset " ^-^M^/"
 		parse/all/case read file [
 			some [
 				thru "Red"
 				opt ["/System" (rs?: yes)]
 				any ws
 				#"[" (return to logic! rs?)
-				to end
 			]
 		]
 		no
@@ -334,11 +335,11 @@ redc: context [
 			not SSE3?
 			any [
 				all [Windows? opts/OS = 'Windows]
-				all [system/version/4 = 4 opts/OS = 'Linux]
+				all [Linux?   opts/OS = 'Linux]
 			]
 			opts/cpu-version: 1.0
 		]
-		if system/version/4 = 2 [						;-- macOS version extraction
+		if macOS? [						;-- macOS version extraction
 			out: make string! 128
 			call/output "sw_vers -productVersion" out
 			attempt [
@@ -412,12 +413,14 @@ redc: context [
 	]
 
 	run-console: func [
-		gui?	[logic!]
-		debug?	[logic!]
+		console? [logic!]
+		gui?	 [logic!]
+		debug?	 [logic!]
+		view?	[logic!]
 		/with file [string!]
 		/local 
 			opts result script filename exe console console-root files files2
-			source con-ui gui-target td winxp? old-td
+			source con-ui gui-target td winxp? old-td status
 	][
 		script: rejoin [temp-dir pick [%GUI/ %CLI/] gui? %gui-console.red]
 		filename: decorate-name pick [%gui-console %console] gui?
@@ -459,7 +462,11 @@ redc: context [
 			]
 
 			source: copy read-cache console/:con-ui
-			if all [any [Windows? macOS?] not gui?][insert find/tail source #"[" "Needs: 'View^/"]
+			if all [
+				view?
+				any [Windows? macOS? Linux?]
+				not gui?
+			][insert find/tail source #"[" "Needs: 'View^/"]
 
 			files: [%auto-complete.red %engine.red %help.red]
 			foreach f files [write temp-dir/:f read-cache console-root/:f]
@@ -473,7 +480,7 @@ redc: context [
 			][
 				files2: pick [
 					[%core.red %highlight.red %settings.red %tips.red]
-					[%input.red %wcwidth.reds %win32.reds %POSIX.reds]
+					[%input.red %wcwidth.reds %win32.reds %POSIX.reds %settings.red]
 				] gui?
 				if gui? [write/binary td/app.ico read-binary-cache console/app.ico]
 			]
@@ -500,14 +507,17 @@ redc: context [
 			]
 		]
 		exe: safe-to-local-file exe
-
-		either all [Windows? gui?] [
-			gui-sys-call exe any [all [file form-args file] ""]
-		][
-			if with [repend exe [" " form-args file]]
-			sys-call exe								;-- replace the buggy CALL native
+		
+		status: 0
+		if console? [ 
+			status: either all [Windows? gui?][
+				gui-sys-call exe any [all [file form-args file] ""]
+			][
+				if with [repend exe [" " form-args file]]
+				sys-call exe								;-- replace the buggy CALL native
+			]
 		]
-		quit/return 0
+		quit/return status
 	]
 	
 	build-libRedRT: func [opts [object!] /local script result file path][
@@ -531,10 +541,11 @@ redc: context [
 			not encap?
 			opts/build-prefix: head insert copy path %../
 		]
-		
-		script: switch/default opts/OS [	;-- empty script for the lib
-			Windows macOS [ [[Needs: View]] ]
-		][ [[]] ]
+
+		script: either all [
+			opts/GUI-engine
+			find [Windows macOS Linux] opts/OS
+		][ [[Needs: View]] ][ [[]] ]
 		
 		result: red/compile script opts
 		print [
@@ -581,11 +592,15 @@ redc: context [
 		]
 	]
 	
-	show-stats: func [result][
+	to-percent: func [v [decimal!]][copy/part mold v * 100 5]
+	
+	show-stats: func [result /local words][
 		print ["...compilation time :" format-time result/1 "ms"]
+		words: length? first system/words
 		
 		if result/2 [
 			print [
+				"...global words     :" words rejoin [#"(" to-percent words / 32894 "%)^/"]
 				"...linking time     :" format-time result/2 "ms^/"
 				"...output file size :" result/3 "bytes^/"
 				"...output file      :" to-local-file result/4 lf
@@ -629,7 +644,7 @@ redc: context [
 				]
 				cmd: copy "-r libRed/libRed.red"
 				if all [not tail? next args args/2 = "stdcall"][
-					insert at cmd 3 " --config [export-ABI: 'stdcall]"
+					insert at cmd 3 { --config "[export-ABI: 'stdcall]"}
 				]
 				parse-options cmd
 			]
@@ -666,7 +681,7 @@ redc: context [
 	parse-options: func [
 		args [string! none!]
 		/local src opts output target verbose filename config config-name base-path type
-		mode target? gui? cmd spec cmds ws ssp
+		mode target? gui? console? cmd spec cmds ws ssp view?
 	][
 		unless args [
 			if encap? [fetch-cmdline]					;-- Fetch real command-line in UTF8 format
@@ -680,6 +695,8 @@ redc: context [
 			libRedRT-update?: no
 		]
 		gui?: Windows?									;-- use GUI console by default on Windows
+		console?: yes									;-- launch console after compilation
+		view?: yes										;-- include view module by default
 
 		unless empty? args [
 			if cmd: select [
@@ -710,8 +727,11 @@ redc: context [
 				| "--red-only"					(opts/red-only?: yes)
 				| "--dev"						(opts/dev-mode?: yes)
 				| "--no-runtime"				(opts/runtime?: no)		;@@ overridable by config!
+				| "--no-console"				(console?: no)
 				| "--cli"						(gui?: no)
+				| "--no-view"					(opts/GUI-engine: none view?: no)
 				| "--no-compress"				(opts/redbin-compress?: no)
+				| "--show-func-map"				(opts/show-func-map?: yes)
 				| "--catch"								;-- just pass-thru
 				| "--" break							;-- stop options processing
 			]
@@ -790,7 +810,7 @@ redc: context [
 		unless src [
 			either encap? [
 				if load-lib? [build-compress-lib]
-				run-console gui? opts/debug?
+				run-console console? gui? opts/debug? view?
 			][
 				return reduce [none none]
 			]
@@ -798,7 +818,7 @@ redc: context [
 
 		if all [encap? none? output none? type][
 			if load-lib? [build-compress-lib]
-			run-console/with gui? opts/debug? filename
+			run-console/with console? gui? opts/debug? view? filename
 		]
 
 		if slash <> first src [							;-- if relative path

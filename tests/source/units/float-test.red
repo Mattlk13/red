@@ -379,6 +379,28 @@ Red [
 	;-- for issue #2593 (ROUND rounds float down if scale is integer)
 	--test-- "round18"  --assert 1 = round/to 0.5 1
 	--test-- "round19"  --assert 0 = round/to 0.499 1
+
+	;-- for issue 3759
+	--test-- "round20"
+		--assert -3.0 = round/to/floor -2.4 1.0
+		--assert -3 = round/to/floor -2.4 1
+		--assert -2.0 = round/to/ceiling -2.4 1.0
+		--assert -2 = round/to/ceiling -2.4 1
+		--assert -4.0 = round/to/floor -2.4 2.0
+		--assert -4 = round/to/floor -2.4 2
+		--assert -2.0 = round/to/ceiling -2.4 2.0
+		--assert -2 = round/to/ceiling -2.4 2
+
+	--test-- "round21"
+		--assert 0:00:16 = round/to 15.0 0:0:2
+		--assert 12.9 = round/to 13.0 30%
+
+	--test-- "round22"
+		--assert 23.0 == round/to         23.0 0.0
+		--assert 23%  == round/to         23%  0%
+		--assert 23.0 == round/to/ceiling 23.0 0.0
+		--assert 23.0 == round/to/floor   23.0 0.0
+
 ===end-group===
 
 ===start-group=== "various regression tests from bugtracker"
@@ -398,6 +420,10 @@ Red [
 			either x < 0.0 [0.0 - x][x]
 		]
 		--assert 3.14 = fabs -3.14
+
+	--test-- "issue #4250"
+		--assert error?     try [to float! "12e"]
+		--assert not error? try [to float! "12e4"]
 
 ===end-group===
 
@@ -427,6 +453,11 @@ Red [
 	--test-- "special-arithmetic-10" --assert "1.#NaN"  = to string! 1.#INF / 1.#INF
 	--test-- "special-arithmetic-11" --assert "1.#NaN"  = to string! 0.0 * 1.#INF
 	--test-- "special-arithmetic-12" --assert "1.#INF"  = to string! 1e308 + 1e308
+	;-- issue #4574
+	--test-- "special-arithmetic-13" --assert "1.#NaN"  = to string! 1.0 % 0.0
+	--test-- "special-arithmetic-14" --assert "1.#NaN"  = to string! 1.#inf % 1.0
+	--test-- "special-arithmetic-15" --assert "1.#NaN"  = to string! -1.#inf % 1.0
+	--test-- "special-arithmetic-16" --assert "1.#NaN"  = to string! 1.#inf % 0.0
 ===end-group===
 
 ===start-group=== "special value equality (NaNs and INF)"
@@ -2782,18 +2813,20 @@ Red [
 	--test-- "float-divide 37"
 		i: 2.2250738585072014e-308
 		j: 1.1
-		;--assert strict-equal? 2.022794416824728e-308 2.2250738585072014e-308 / 1.1
-		;--assert strict-equal? 2.022794416824728e-308 divide 2.2250738585072014e-308 1.1
-		;--assert strict-equal? 2.022794416824728e-308 i / j
-		;--assert strict-equal? 2.022794416824728e-308 divide i j
+		base: to-float #either config/target = 'ARM [#{000E8BA2E8BA2E8B}][#{000E8BA2E8BA2E8C}] ;;FIXME: workaround #4041
+		--assert strict-equal? base 2.2250738585072014e-308 / 1.1
+		--assert strict-equal? base divide 2.2250738585072014e-308 1.1
+		--assert strict-equal? base i / j
+		--assert strict-equal? base divide i j
 
 	--test-- "float-divide 38"
 		i: 2.2250738585072014e-308
 		j: -1.1
-		;--assert strict-equal? -2.022794416824728e-308 2.2250738585072014e-308 / -1.1
-		;--assert strict-equal? -2.022794416824728e-308 divide 2.2250738585072014e-308 -1.1
-		;--assert strict-equal? -2.022794416824728e-308 i / j
-		;--assert strict-equal? -2.022794416824728e-308 divide i j
+		base: to-float #either config/target = 'ARM [#{800E8BA2E8BA2E8B}][#{800E8BA2E8BA2E8C}] ;;FIXME: workaround #4041
+		--assert strict-equal? base 2.2250738585072014e-308 / -1.1
+		--assert strict-equal? base divide 2.2250738585072014e-308 -1.1
+		--assert strict-equal? base i / j
+		--assert strict-equal? base divide i j
 
 	--test-- "float-divide 39"
 		i: 2.2250738585072014e-308

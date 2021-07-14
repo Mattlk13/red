@@ -25,45 +25,45 @@ binary: context [
 		]
 	]
 
-	debase64: [
-		#"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 07h
-		#"^(40)" #"^(40)" #"^(40)" #"^(80)" #"^(40)" #"^(40)" #"^(80)" #"^(80)" ;-- 0Fh
-		#"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 17h
-		#"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 1Fh
-		#"^(40)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(40)" ;-- 27h
-		#"^(80)" #"^(80)" #"^(80)" #"^(3E)" #"^(80)" #"^(80)" #"^(80)" #"^(3F)" ;-- 2Fh
-		#"^(34)" #"^(35)" #"^(36)" #"^(37)" #"^(38)" #"^(39)" #"^(3A)" #"^(3B)" ;-- 37h
-		#"^(3C)" #"^(3D)" #"^(80)" #"^(80)" #"^(80)" #"^(00)" #"^(80)" #"^(80)" ;-- 3Fh
-		#"^(80)" #"^(00)" #"^(01)" #"^(02)" #"^(03)" #"^(04)" #"^(05)" #"^(06)" ;-- 47h
-		#"^(07)" #"^(08)" #"^(09)" #"^(0A)" #"^(0B)" #"^(0C)" #"^(0D)" #"^(0E)" ;-- 4Fh
-		#"^(0F)" #"^(10)" #"^(11)" #"^(12)" #"^(13)" #"^(14)" #"^(15)" #"^(16)" ;-- 57h
-		#"^(17)" #"^(18)" #"^(19)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 5Fh
-		#"^(80)" #"^(1A)" #"^(1B)" #"^(1C)" #"^(1D)" #"^(1E)" #"^(1F)" #"^(20)" ;-- 67h
-		#"^(21)" #"^(22)" #"^(23)" #"^(24)" #"^(25)" #"^(26)" #"^(27)" #"^(28)" ;-- 6Fh
-		#"^(29)" #"^(2A)" #"^(2B)" #"^(2C)" #"^(2D)" #"^(2E)" #"^(2F)" #"^(30)" ;-- 77h
-		#"^(31)" #"^(32)" #"^(33)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 7Fh
-	]
+	debase64: #{
+		80 80 80 80 80 80 80 80	;-- 07h
+		40 40 40 80 40 40 80 80 ;-- 0Fh
+		80 80 80 80 80 80 80 80 ;-- 17h
+		80 80 80 80 80 80 80 80 ;-- 1Fh
+		40 80 80 80 80 80 80 40 ;-- 27h
+		80 80 80 3E 80 80 80 3F ;-- 2Fh
+		34 35 36 37 38 39 3A 3B ;-- 37h
+		3C 3D 80 80 80 00 80 80 ;-- 3Fh
+		80 00 01 02 03 04 05 06 ;-- 47h
+		07 08 09 0A 0B 0C 0D 0E ;-- 4Fh
+		0F 10 11 12 13 14 15 16 ;-- 57h
+		17 18 19 80 80 80 80 80 ;-- 5Fh
+		80 1A 1B 1C 1D 1E 1F 20 ;-- 67h
+		21 22 23 24 25 26 27 28 ;-- 6Fh
+		29 2A 2B 2C 2D 2E 2F 30 ;-- 77h
+		31 32 33 80 80 80 80 80 ;-- 7Fh
+	}
 
 	enbase64: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-	debase58: [
-		#"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 07h
-		#"^(40)" #"^(40)" #"^(40)" #"^(80)" #"^(40)" #"^(40)" #"^(80)" #"^(80)" ;-- 0Fh
-		#"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 17h
-		#"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 1Fh
-		#"^(40)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(40)" ;-- 27h
-		#"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 2Fh
-		#"^(80)" #"^(00)" #"^(01)" #"^(02)" #"^(03)" #"^(04)" #"^(05)" #"^(06)" ;-- 37h
-		#"^(07)" #"^(08)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 3Fh
-		#"^(80)" #"^(09)" #"^(0A)" #"^(0B)" #"^(0C)" #"^(0D)" #"^(0E)" #"^(0F)" ;-- 47h
-		#"^(10)" #"^(80)" #"^(11)" #"^(12)" #"^(13)" #"^(14)" #"^(15)" #"^(80)" ;-- 4Fh
-		#"^(16)" #"^(17)" #"^(18)" #"^(19)" #"^(1A)" #"^(1B)" #"^(1C)" #"^(1D)" ;-- 57h
-		#"^(1E)" #"^(1F)" #"^(20)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 5Fh
-		#"^(80)" #"^(21)" #"^(22)" #"^(23)" #"^(24)" #"^(25)" #"^(26)" #"^(27)" ;-- 67h
-		#"^(28)" #"^(29)" #"^(2A)" #"^(2B)" #"^(80)" #"^(2C)" #"^(2D)" #"^(2E)" ;-- 6Fh
-		#"^(2F)" #"^(30)" #"^(31)" #"^(32)" #"^(33)" #"^(34)" #"^(35)" #"^(36)" ;-- 77h
-		#"^(37)" #"^(38)" #"^(39)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" #"^(80)" ;-- 7Fh
-	]
+	debase58: #{
+		80 80 80 80 80 80 80 80 ;-- 07h
+		40 40 40 80 40 40 80 80 ;-- 0Fh
+		80 80 80 80 80 80 80 80 ;-- 17h
+		80 80 80 80 80 80 80 80 ;-- 1Fh
+		40 80 80 80 80 80 80 40 ;-- 27h
+		80 80 80 80 80 80 80 80 ;-- 2Fh
+		80 00 01 02 03 04 05 06 ;-- 37h
+		07 08 80 80 80 80 80 80 ;-- 3Fh
+		80 09 0A 0B 0C 0D 0E 0F ;-- 47h
+		10 80 11 12 13 14 15 80 ;-- 4Fh
+		16 17 18 19 1A 1B 1C 1D ;-- 57h
+		1E 1F 20 80 80 80 80 80 ;-- 5Fh
+		80 21 22 23 24 25 26 27 ;-- 67h
+		28 29 2A 2B 80 2C 2D 2E ;-- 6Fh
+		2F 30 31 32 33 34 35 36 ;-- 77h
+		37 38 39 80 80 80 80 80 ;-- 7Fh
+	}
 
 	enbase58: "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
@@ -226,7 +226,7 @@ binary: context [
 			int: int >> 8
 		]
 	]
-
+	
 	from-issue: func [
 		issue	[red-word!]
 		bin		[red-binary!]
@@ -854,7 +854,8 @@ binary: context [
 			size   [integer!]
 	][
 		#if debug? = yes [if verbose > 0 [print-line "binary/serialize"]]
-
+		
+		if part < 0 [part: 0]
 		s: GET_BUFFER(bin)
 		head: (as byte-ptr! s/offset) + bin/head
 		tail: as byte-ptr! s/tail
@@ -862,7 +863,7 @@ binary: context [
 
 		string/concatenate-literal buffer "#{"
 		bytes: 0
-		if size > 30 [
+		if all [size > 30 not flat?][
 			string/append-char GET_BUFFER(buffer) as-integer lf
 			part: part - 1
 		]
@@ -870,7 +871,7 @@ binary: context [
 		while [head < tail][
 			string/concatenate-literal buffer string/byte-to-hex as-integer head/value
 			bytes: bytes + 1
-			if bytes % 32 = 0 [
+			if all [bytes % 32 = 0 not flat?][
 				string/append-char GET_BUFFER(buffer) as-integer lf
 				part: part - 1
 			]
@@ -878,7 +879,7 @@ binary: context [
 			if all [OPTION?(arg) part <= 0][return part]
 			head: head + 1
 		]
-		if all [size > 30 bytes % 32 <> 0] [
+		if all [size > 30 bytes % 32 <> 0 not flat?][
 			string/append-char GET_BUFFER(buffer) as-integer lf
 			part: part - 1
 		]
@@ -894,10 +895,10 @@ binary: context [
 			bin	[red-binary!]
 	][
 		bin: as red-binary! slot
-		bin/header: TYPE_UNSET
+		set-type slot TYPE_UNSET
 		bin/head: 0
 		bin/node: alloc-bytes size
-		bin/header: TYPE_BINARY
+		set-type slot TYPE_BINARY
 		bin
 	]
 
@@ -1087,6 +1088,7 @@ binary: context [
 	][
 		#if debug? = yes [if verbose > 0 [print-line "binary/compare"]]
 
+		if TYPE_OF(bin2) <> TYPE_BINARY [RETURN_COMPARE_OTHER]
 		equal? bin1 bin2 op no
 	]
 
@@ -1113,6 +1115,7 @@ binary: context [
 			data	  [byte-ptr!]
 			s		  [series!]
 			s2		  [series!]
+			type      [integer!]
 			int-value [integer!]
 			dup-n	  [integer!]
 			cnt		  [integer!]
@@ -1155,8 +1158,9 @@ binary: context [
 			(as-integer s/tail - s/offset) >> (log-b GET_UNIT(s)) = bin/head
 			append?
 		]
-
-		either TYPE_OF(value) = TYPE_BLOCK [		;@@ replace it with: typeset/any-block?
+		
+		type: TYPE_OF(value)
+		either ANY_LIST?(type) [
 			src: as red-block! value
 			s2: GET_BUFFER(src)
 			cell:  s2/offset + src/head
@@ -1298,13 +1302,7 @@ binary: context [
 					src: GET_TUPLE_ARRAY(cell)
 				]
 				default [
-					either any [
-						type = TYPE_STRING				;@@ replace with ANY_STRING?
-						type = TYPE_FILE 
-						type = TYPE_URL
-						type = TYPE_EMAIL
-						type = TYPE_TAG
-					][
+					either ANY_STRING?(type) [
 						form-buf: as red-string! cell
 					][
 						;TBD: free previous form-buf node and series buffer
@@ -1433,7 +1431,7 @@ binary: context [
 			;-- General actions --
 			INHERIT_ACTION	;make
 			INHERIT_ACTION	;random
-			null			;reflect
+			INHERIT_ACTION	;reflect
 			:to
 			:form
 			:mold

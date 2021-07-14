@@ -360,6 +360,7 @@ bitset: context [
 		/local
 			int	  [red-integer!]
 			char  [red-char!]
+			fl	  [red-float!]
 			w	  [red-word!]
 			value [red-value!]
 			tail  [red-value!]
@@ -378,14 +379,22 @@ bitset: context [
 		
 		switch TYPE_OF(spec) [
 			TYPE_CHAR
-			TYPE_INTEGER [
+			TYPE_INTEGER
+			TYPE_FLOAT [
 				type: TYPE_OF(spec)
-				max: either type = TYPE_CHAR [
-					char: as red-char! spec
-					char/value
-				][
-					int: as red-integer! spec
-					int/value
+				max: switch type [
+					TYPE_CHAR [
+						char: as red-char! spec
+						char/value
+					]
+					TYPE_FLOAT [
+						fl: as red-float! spec
+						as-integer fl/value
+					]
+					default [
+						int: as red-integer! spec
+						int/value
+					]
 				]
 				if all [max < 0 op <> OP_TEST][
 					fire [TO_ERROR(script out-of-range) spec]
@@ -516,6 +525,7 @@ bitset: context [
 			bits [red-bitset!]
 			b2	 [red-bitset!]
 			size [integer!]
+			fl   [red-float!]
 			int	 [red-integer!]
 			blk	 [red-block!]
 			bin  [red-binary!]
@@ -553,16 +563,17 @@ bitset: context [
 				b2: as red-bitset! spec
 				bits/node: copy-series GET_BUFFER(b2)
 			]
+			TYPE_FLOAT
 			TYPE_INTEGER [
 				if cmd = CMD_TO [
 					fire [TO_ERROR(script bad-to-arg) datatype/push TYPE_BITSET spec]
 				]
-				int: as red-integer! spec
-				size: int/value
-				if size <= 0 [
+				size: 0
+				GET_INT_FROM(size spec)
+				if size < 0 [
 					fire [
 						TO_ERROR(script out-of-range)
-						int
+						spec
 					]
 				]
 				size: either zero? (size and 7) [size][size + 8 and -8]	;-- round to byte multiple
@@ -668,7 +679,7 @@ bitset: context [
 		string/append-char GET_BUFFER(buffer) as-integer #"}"
 		
 		either not? [
-			string/append-char GET_BUFFER(buffer)as-integer #"]"
+			string/append-char GET_BUFFER(buffer) as-integer #"]"
 			part - 7									;-- account for extra chars
 		][
 			part - 1
@@ -710,6 +721,7 @@ bitset: context [
 		#if debug? = yes [if verbose > 0 [print-line "bitset/compare"]]
 
 		if TYPE_OF(bs2) <> TYPE_BITSET [RETURN_COMPARE_OTHER]
+		if op = COMP_SAME [return as-integer bs1/node <> bs2/node]
 		
 		s: 	  GET_BUFFER(bs1)
 		head: as byte-ptr! s/offset
@@ -748,6 +760,8 @@ bitset: context [
 		value	[red-value!]
 		path	[red-value!]
 		case?	[logic!]
+		get?	[logic!]
+		tail?	[logic!]
 		return:	[red-value!]
 		/local
 			int [red-integer!]
@@ -850,10 +864,13 @@ bitset: context [
 		tail?	 [logic!]
 		match?	 [logic!]
 		return:	 [red-value!]
+		/local
+			bool [red-logic!]
 	][
 		#if debug? = yes [if verbose > 0 [print-line "bitset/find"]]
 		
-		pick bits 0 value
+		bool: as red-logic! pick bits 0 value
+		as red-value! either bool/value [bool][none-value]
 	]
 	
 	insert: func [
@@ -906,6 +923,7 @@ bitset: context [
 		/local
 			bool  [red-logic!]
 			int	  [red-integer!]
+			fl	  [red-float!]
 			type  [integer!]
 			op	  [integer!]
 			s	  [series!]
@@ -915,12 +933,14 @@ bitset: context [
 		type: TYPE_OF(data)
 		bool: as red-logic! data
 		int:  as red-integer! data
+		fl:	  as red-float! data
 		s:	  GET_BUFFER(bits)
 		
 		op: either any [
 			type = TYPE_NONE
 			all [type = TYPE_LOGIC not bool/value]
 			all [type = TYPE_INTEGER zero? int/value]
+			all [type = TYPE_FLOAT fl/value = 0.0]
 		][
 			OP_CLEAR
 		][

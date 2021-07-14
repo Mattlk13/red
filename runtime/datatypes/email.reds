@@ -36,7 +36,7 @@ email: context [
 	][
 		#if debug? = yes [if verbose > 0 [print-line "email/mold"]]
 		
-		url/mold as red-url! email buffer only? all? flat? arg part indent
+		string/form as red-string! email buffer arg part
 	]
 	
 	eval-path: func [
@@ -45,6 +45,8 @@ email: context [
 		value	[red-value!]
 		path	[red-value!]
 		case?	[logic!]
+		get?	[logic!]
+		tail?	[logic!]
 		return:	[red-value!]
 		/local
 			part  [red-value!]
@@ -64,7 +66,7 @@ email: context [
 				]
 			]
 			TYPE_INTEGER [
-				return string/eval-path parent element value path case?
+				return string/eval-path parent element value path case? get? tail?
 			]
 			default [fire [TO_ERROR(script invalid-path) path element]]
 		]

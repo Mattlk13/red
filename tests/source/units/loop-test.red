@@ -1,7 +1,7 @@
 Red [
 	Title:   "Red loops test script"
 	Author:  "Nenad Rakocevic & Peter W A Wood"
-	File: 	 %loop-test.reds
+	File: 	 %loop-test.red
 	Tabs:	 4
 	Rights:  "Copyright (C) 2011-2015 Red Foundation. All rights reserved."
 	License: "BSD-3 - https://github.com/red/red/blob/origin/BSD-3-License.txt"
@@ -41,7 +41,32 @@ Red [
     br6-i: 0
     repeat br6-counter -1 [br6-i: br6-i + 1]
   --assert 0 = br6-i
+
+  --test-- "br7"
+    br7-i: 0
+    repeat br7-counter 3.5 [br7-i: br7-i + 1]
+  --assert 3 = br7-i
+
+  --test-- "br8"
+    br8-i: 0
+    repeat br8-counter 10 / 4 [br8-i: br8-i + 1]
+  --assert 2 = br8-i
   
+===end-group===
+
+===start-group=== "advanced repeat tests"
+
+	--test-- "repeat counter mess"
+  		rcm-n: 0
+		repeat rcm-i 10 [
+			repeat rcm-i 5 [
+				rcm-i: rcm-i + 3
+				rcm-n: rcm-n + 1
+			]
+		]
+		--assert 50 = rcm-n
+		unset [rcm-i rcm-n]
+
 ===end-group===
 
 ===start-group=== "basic until tests"
@@ -82,6 +107,16 @@ Red [
     j: 0
     loop -1 [j: j + 1]
   --assert j = 0
+
+  --test-- "b16"
+    j: 0
+    loop 3.8 [j: j + 1]
+  --assert j = 3
+
+ --test-- "b17"
+    j: 0
+    loop 10 / 4 [j: j + 1]
+  --assert j = 2
   
 ===end-group===
 
@@ -220,7 +255,20 @@ Red [
     ]
     issue427-f
   --assert 15 = issue427-acc
-  
+
+	--test-- "issue #3361"
+  		s3361: copy []
+		f3361: func [n /local i] [
+			repeat i 3 [
+				repend s3361 [n i]
+				all [i = 1 n = 1 f3361 2]
+				all [i = 2 n = 2 f3361 3]
+			]
+		]
+		f3361 1
+		--assert s3361 = [1 1  2 1 2 2  3 1 3 2 3 3  2 3  1 2 1 3]
+		unset [f3361 s3361]
+
 ===end-group===
     
 ~~~end-file~~~

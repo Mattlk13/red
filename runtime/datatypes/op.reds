@@ -86,26 +86,24 @@ op: context [
 		flag: 0
 		type: TYPE_OF(spec)
 		unless any [
-			type = TYPE_BLOCK
+			;type = TYPE_BLOCK
 			type = TYPE_ACTION					;@@ replace with ANY_NATIVE? when available
 			type = TYPE_NATIVE
-			type = TYPE_OP
 			type = TYPE_FUNCTION
 			type = TYPE_ROUTINE
 		][fire [TO_ERROR(script invalid-type) datatype/push TYPE_OF(spec)]]
 		
 		node: switch type [
-			TYPE_BLOCK [
-				s: GET_BUFFER(spec)
-				blk: as red-block! s/offset
-				if blk + blk/head + 2 <> s/tail [throw-make proto spec]
-				blk/node
-			]
+			;TYPE_BLOCK [
+			;	s: GET_BUFFER(spec)
+			;	blk: as red-block! s/offset
+			;	if blk + blk/head + 2 <> s/tail [throw-make proto spec]
+			;	blk/node
+			;]
 			TYPE_ACTION
-			TYPE_NATIVE
-			TYPE_OP [
-				if type = TYPE_NATIVE [flag: flag-native-op]
-				native: as red-native! spec				
+			TYPE_NATIVE [
+				flag: flag-native-op
+				native: as red-native! spec
 				unless binary? native/spec [fire [TO_ERROR(script bad-op-spec)]]
 				code: native/code
 				native/spec

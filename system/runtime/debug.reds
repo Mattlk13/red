@@ -68,8 +68,9 @@ __print-debug-line: func [
 ;-------------------------------------------
 __print-debug-stack: func [
 	address [byte-ptr!]						;-- memory address where the runtime error happened
-	/local 
-		ret funcs records nb next end top frame s value lines pf [float-ptr!]
+	/local
+		pf [float-ptr!]
+		ret funcs records nb next end top frame s value lines
 		unused base
 ][
 	funcs:	as byte-ptr! __debug-funcs
@@ -153,6 +154,7 @@ __print-debug-stack: func [
 ]
 
 stack-trace: func [][
+	__set-stack-on-crash
 	__print-debug-stack system/pc
 ]
 
@@ -240,7 +242,7 @@ dump-memory: func [
 ]
 
 ;-------------------------------------------
-;-- Dump memory on screen in hex format as array of bytes (handy wrapper on dump-hex)
+;-- Dump memory on screen in hex format as array of bytes (handy wrapper on dump-memory)
 ;-------------------------------------------
 dump-hex: func [
 	address	[byte-ptr!]						;-- memory address where the dump starts
@@ -250,7 +252,7 @@ dump-hex: func [
 ]
 
 ;-------------------------------------------
-;-- Dump memory on screen in hex format as array of 32-bit integers (handy wrapper on dump-hex)
+;-- Dump memory on screen in hex format as array of 32-bit integers (handy wrapper on dump-memory)
 ;-------------------------------------------
 dump-hex4: func [
 	address	[int-ptr!]						;-- memory address where the dump starts

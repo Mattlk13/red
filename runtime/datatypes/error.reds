@@ -29,10 +29,11 @@ error: context [
 		error [red-object!]
 		value [red-value!]
 		/local
-			base [red-value!]
+			base slot [red-value!]
 	][
 		base: object/get-values error
-		copy-cell value base + field-where
+		slot: base + field-where
+		if TYPE_OF(slot) = TYPE_NONE [copy-cell value slot]	;-- don't overwrite if previously set
 	]
 	
 	get-type: func [
@@ -100,6 +101,28 @@ error: context [
 		words/_anon										;-- return anonymous name
 	]
 	
+	capture: func [
+		err	[red-object!]
+		/local
+			field [red-integer!]
+			blk	  [red-block!]
+			int	  [red-integer!]
+			level [integer!]
+			ptr	  [integer!]
+	][
+		if TYPE_OF(err) <> TYPE_ERROR [exit]			;-- error! not created yet, give up.
+		field: as red-integer! (object/get-values err) + field-stack
+		if TYPE_OF(field) = TYPE_INTEGER [
+			level: 1
+			int: as red-integer! #get system/state/trace
+			if all [TYPE_OF(int) = TYPE_INTEGER int/value > 0][level: int/value]
+			ptr: field/value
+			blk: as red-block! field
+			block/make-at blk 20
+			stack/trace-in level blk ptr
+		]
+	]
+	
 	create: func [
 		cat		[red-value!]							;-- expects a word!
 		id		[red-value!]							;-- expects a word!
@@ -130,14 +153,16 @@ error: context [
 		obj		[red-object!]
 		return: [red-block!]
 		/local
-			value  [red-value!]
-			tail   [red-value!]
-			buffer [red-string!]
-			type   [integer!]
+			value   [red-value!]
+			tail    [red-value!]
+			buffer  [red-string!]
+			type    [integer!]
+			syntax? [logic!]
 	][
 		value: block/rs-head blk
 		tail:  block/rs-tail blk
 		
+		syntax?: words/errors/syntax/symbol = get-type obj
 		while [value < tail][
 			type: TYPE_OF(value)
 			if any [
@@ -146,7 +171,11 @@ error: context [
 			][
 				buffer: string/rs-make-at stack/push* 16
 				stack/mark-native words/_body
-				actions/mold object/rs-select obj value buffer no no yes null 0 0
+				either syntax? [
+					actions/form object/rs-select obj value buffer null 0
+				][
+					actions/mold object/rs-select obj value buffer no no yes null 0 0
+				]
 				stack/unwind
 				copy-cell as red-value! buffer value
 				stack/pop 1
@@ -292,8 +321,14 @@ error: context [
 			str		[red-string!]
 			blk		[red-block!]
 			int		[red-integer!]
+			print-stack-header [subroutine!]
 	][
 		#if debug? = yes [if verbose > 0 [print-line "error/form"]]
+		
+		print-stack-header: [
+			string/concatenate-literal buffer "^/*** Stack: "
+			part: part - 12
+		]
 		
 		base: object/get-values obj
 		string/concatenate-literal buffer "*** "
@@ -338,9 +373,16 @@ error: context [
 		int: as red-integer! #get system/state/trace
 		if all [TYPE_OF(int) = TYPE_INTEGER int/value > 0][
 			value: base + field-stack
-			if TYPE_OF(value) = TYPE_INTEGER [
-				string/concatenate-literal buffer "^/*** Stack: "
-				part: stack/trace int/value as red-integer! value buffer part - 12
+			switch TYPE_OF(value) [
+				TYPE_INTEGER [
+					print-stack-header
+					part: stack/trace int/value as red-integer! value buffer part
+				]
+				TYPE_BLOCK [
+					print-stack-header
+					part: actions/form value buffer arg part
+				]
+				default [0]
 			]
 		]
 		part
@@ -365,6 +407,42 @@ error: context [
 		string/append-char GET_BUFFER(buffer) as-integer #"]"
 		part - 1
 	]
+	
+	eval-path: func [
+		parent	[red-object!]							;-- implicit type casting
+		element	[red-value!]
+		value	[red-value!]
+		path	[red-value!]
+		case?	[logic!]
+		get?	[logic!]
+		tail?	[logic!]
+		return:	[red-value!]
+	][
+		#if debug? = yes [if verbose > 0 [print-line "error/eval-path"]]
+		
+		if value <> null [fire [TO_ERROR(script invalid-path-set) path]]
+		object/eval-path parent element value path case? get? tail?
+	]
+	
+	compare: func [
+		obj1	[red-object!]							;-- first operand
+		obj2	[red-object!]							;-- second operand
+		op		[integer!]								;-- type of comparison
+		return:	[integer!]
+		/local
+			res [integer!]
+	][
+		#if debug? = yes [if verbose > 0 [print-line "error/compare"]]
+		
+		either TYPE_OF(obj2) = TYPE_ERROR [
+			set-type as red-value! obj2 TYPE_OBJECT
+			res: object/compare obj1 obj2 op
+			set-type as red-value! obj2 TYPE_ERROR
+		][
+			RETURN_COMPARE_OTHER
+		]
+		res
+	]
 
 	init: does [
 		datatype/register [
@@ -378,9 +456,9 @@ error: context [
 			null			;to
 			:form
 			:mold
-			INHERIT_ACTION	;eval-path
+			:eval-path
 			null			;set-path
-			INHERIT_ACTION	;compare
+			:compare
 			;-- Scalar actions --
 			null			;absolute
 			null			;add
